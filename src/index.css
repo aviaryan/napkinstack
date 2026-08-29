@@ -1,0 +1,75 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Red Hat Mono', ui-monospace, monospace;
+
+  --color-pad: #9fb892;
+  --color-sheet: #e4ebd4;
+  --color-panel: #d5deC6;
+  --color-ink: #142010;
+  --color-muted: #3d4a36;
+  --color-rule: #7f9270;
+  --color-ballpoint: #1e4d9c;
+  --color-mark: #f5c518;
+  --color-mark-ink: #3a2c00;
+  --color-node: #f3f6ea;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  background-color: var(--color-pad);
+  font-family: var(--font-sans);
+  background-image:
+    linear-gradient(rgba(20, 32, 16, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 32, 16, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-mark) 70%, white);
+  color: var(--color-ink);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.arch-flow {
+  background: var(--color-sheet) !important;
+}
+
+.arch-flow .react-flow__edge-textbg {
+  fill: var(--color-sheet);
+}
+
+.arch-flow .react-flow__edge-text {
+  fill: var(--color-ballpoint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.arch-flow .react-flow__attribution {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
