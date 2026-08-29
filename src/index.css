@@ -54,10 +54,18 @@ select {
 }
 
 .arch-flow .react-flow__edge-text {
-  fill: var(--color-ballpoint);
+  fill: var(--color-ink);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
+}
+
+.node-stack {
+  box-shadow:
+    3px 3px 0 0 var(--color-node),
+    3px 3px 0 1px var(--color-ink),
+    6px 6px 0 0 var(--color-node),
+    6px 6px 0 1px var(--color-ink);
 }
 
 .arch-flow .react-flow__attribution {

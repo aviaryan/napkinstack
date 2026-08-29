@@ -87,7 +87,7 @@ export function explainArchitecture(
 export function assumptionList(input: ArchitectureInput, flags: RecipeFlags): string[] {
   const items = [
     `Peak = average × ${input.peakFactor}. Real peaks vary; this is a teaching knob.`,
-    `One app instance is assumed to hold ~${input.rpsPerInstance} RPS before you add another.`,
+    `One app instance is assumed to hold ~${input.rpsPerInstance} rps before you add another.`,
     `Storage is ${formatBytes(input.bytesPerUser)} per user × 1.5 for indexes and overhead.`,
     `Egress ≈ peak QPS × ${input.payloadKb} KB × 2.6e6 seconds/month.`,
     input.instantConsistency

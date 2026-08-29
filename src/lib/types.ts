@@ -30,12 +30,21 @@ export interface ArchitectureInput {
   provider: Provider
 }
 
+export type EdgeRole = 'read' | 'write' | 'mixed' | 'async' | 'static' | 'replication'
+
 export interface ArchNode {
   id: string
   kind: NodeKind
   label: string
   detail: string
   count?: number
+  ghost?: boolean
+  why?: string
+  costKey?: string
+  appearNote?: string
+  utilization?: number
+  stack?: boolean
+  monthly?: number
 }
 
 export interface ArchEdge {
@@ -43,6 +52,8 @@ export interface ArchEdge {
   source: string
   target: string
   label: string
+  role: EdgeRole
+  qps?: number
 }
 
 export interface CostItem {

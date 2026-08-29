@@ -7,7 +7,7 @@ import {
   redisMonthly,
   vmMonthly,
 } from '../data/prices'
-import { recipeFor } from '../data/recipes'
+import { QUEUE_WRITE_QPS, READ_WRITE_CACHE_RATIO, recipeFor } from '../data/recipes'
 import {
   appSizeFor,
   dbSizeFor,
@@ -22,6 +22,7 @@ import type {
   ArchNode,
   ArchitectureInput,
   ArchitectureResult,
+  Band,
   CostItem,
   MathLine,
   RecipeFlags,
@@ -80,10 +81,12 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
   const { nodes, edges } = buildGraph({
     input,
     flags,
+    band,
     appN,
     appLabel: app.label,
     db,
     redisClass: input.provider === 'cheap' ? redis?.cheapClass : redis?.class,
+    redisClustered: Boolean(redis?.clustered),
     diskGb,
     peakReadQps,
     peakWriteQps,
@@ -104,6 +107,7 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     redisClustered: Boolean(redis?.clustered),
     peakTotalQps,
   })
+  attachCosts(nodes, cost.items)
 
   const metrics = {
     avgReadQps,
@@ -283,13 +287,60 @@ function estimateCost(opts: {
   }
 }
 
+function attachCosts(nodes: ArchNode[], items: CostItem[]): void {
+  for (const node of nodes) {
+    if (node.ghost) continue
+    const item = items.find((row) => matchesCost(node, row.name))
+    if (item) node.monthly = item.monthly
+  }
+}
+
+function matchesCost(node: ArchNode, name: string): boolean {
+  switch (node.kind) {
+    case 'combo':
+      return name.startsWith('Single VM') || name.startsWith('Local disk')
+    case 'app':
+      return name.startsWith('App VMs')
+    case 'lb':
+      return name === 'ALB' || name.includes('proxy')
+    case 'primary':
+      return name.includes('Postgres') || name.includes('PlanetScale')
+    case 'replica':
+      return name.includes('Postgres') || name.includes('PlanetScale')
+    case 'cache':
+      return name.startsWith('Redis')
+    case 'queue':
+      return name.includes('queue') || name.includes('SQS')
+    case 'object':
+      return name.includes('Object') || name.includes('S3')
+    case 'cdn':
+      return name.includes('CDN') || name.includes('CloudFront')
+    case 'pooler':
+      return name.includes('PgBouncer') || name.includes('pooler')
+    default:
+      return false
+  }
+}
+
+function rpsLabel(qps: number, suffix = ''): string {
+  const core = `~${formatQpsShort(qps)} rps`
+  return suffix ? `${core} ${suffix}` : core
+}
+
+function clampUtil(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(1, n)
+}
+
 function buildGraph(opts: {
   input: ArchitectureInput
   flags: RecipeFlags
+  band: Band
   appN: number
   appLabel: string
   db: ReturnType<typeof dbSizeFor>
   redisClass?: string
+  redisClustered: boolean
   diskGb: number
   peakReadQps: number
   peakWriteQps: number
@@ -301,10 +352,12 @@ function buildGraph(opts: {
   const {
     input,
     flags,
+    band,
     appN,
     appLabel,
     db,
     redisClass,
+    redisClustered,
     diskGb,
     peakReadQps,
     peakWriteQps,
@@ -329,6 +382,7 @@ function buildGraph(opts: {
     kind: 'client',
     label: 'Clients',
     detail: `${formatUsersCompact(input.users)} users`,
+    why: 'Where traffic starts. User count × actions/day becomes rps.',
   })
 
   if (flags.comboAppDb) {
@@ -337,12 +391,16 @@ function buildGraph(opts: {
       kind: 'combo',
       label: 'App + Postgres',
       detail: `${appLabel} · ${formatGb(diskGb)}`,
+      why: 'Hobby band: one VM runs the app and the database. No load balancer.',
+      utilization: clampUtil(peakTotalQps / Math.max(input.rpsPerInstance, 1)),
     })
     edges.push({
       id: 'e-client-combo',
       source: 'client',
       target: 'combo',
-      label: `~${formatQpsShort(peakTotalQps)} rps`,
+      label: rpsLabel(peakTotalQps),
+      role: 'mixed',
+      qps: peakTotalQps,
     })
     return { nodes, edges }
   }
@@ -355,12 +413,16 @@ function buildGraph(opts: {
       kind: 'cdn',
       label: cdnName,
       detail: 'static assets',
+      why: 'CDN for static assets only — never the source of truth for product reads.',
+      appearNote: '+ CDN — static assets at this scale',
     })
     edges.push({
       id: 'e-client-cdn',
       source: 'client',
       target: 'cdn',
-      label: `~${formatQpsShort(peakTotalQps)} rps`,
+      label: rpsLabel(peakTotalQps),
+      role: 'static',
+      qps: peakTotalQps,
     })
     prev = 'cdn'
   }
@@ -371,51 +433,45 @@ function buildGraph(opts: {
       kind: 'lb',
       label: lbName,
       detail: input.provider === 'cheap' ? 'edge proxy' : 'reverse proxy',
+      why: 'HA entry point. Spreads requests across the app fleet.',
     })
     edges.push({
       id: 'e-prev-lb',
       source: prev,
       target: 'lb',
-      label: flags.cdn ? 'origin / API' : `~${formatQpsShort(peakTotalQps)} rps`,
+      label: flags.cdn ? 'origin / API' : rpsLabel(peakTotalQps),
+      role: 'mixed',
+      qps: peakTotalQps,
     })
     prev = 'lb'
   }
 
-  const splitApps = appN <= 3
-  if (splitApps) {
-    for (let i = 1; i <= appN; i++) {
-      nodes.push({
-        id: `app-${i}`,
-        kind: 'app',
-        label: `App ${i}`,
-        detail: appLabel,
-        count: 1,
-      })
-      edges.push({
-        id: `e-prev-app-${i}`,
-        source: prev,
-        target: `app-${i}`,
-        label: `~${formatQpsShort(peakTotalQps / appN)} rps`,
-      })
-    }
-  } else {
-    nodes.push({
-      id: 'app',
-      kind: 'app',
-      label: `App × ${appN}`,
-      detail: appLabel,
-      count: appN,
-    })
-    edges.push({
-      id: 'e-prev-app',
-      source: prev,
-      target: 'app',
-      label: `~${formatQpsShort(peakTotalQps)} rps`,
-    })
-  }
+  const readsOnPrimary = input.instantConsistency
+    ? peakReadQps
+    : Math.min(effectiveDbReads, db.primaryReadBudgetQps)
+  const replicaReads = replicas > 0 ? Math.max(0, effectiveDbReads - db.primaryReadBudgetQps) : 0
+  const dbTraffic = readsOnPrimary + peakWriteQps
 
-  const appTargets = splitApps ? Array.from({ length: appN }, (_, i) => `app-${i + 1}`) : ['app']
-  const firstApp = appTargets[0]
+  nodes.push({
+    id: 'app',
+    kind: 'app',
+    label: appN <= 1 ? 'App' : `App × ${appN}`,
+    detail: appLabel,
+    count: appN,
+    stack: appN > 1,
+    why: `ceil(${formatQpsShort(peakTotalQps)} rps / ${input.rpsPerInstance}) + ${input.spare} spare${
+      band === 'hobby' ? '' : ', min 2 for HA'
+    }.`,
+    utilization: clampUtil(peakTotalQps / Math.max(appN * input.rpsPerInstance, 1)),
+  })
+  edges.push({
+    id: 'e-prev-app',
+    source: prev,
+    target: 'app',
+    label: rpsLabel(peakTotalQps),
+    role: 'mixed',
+    qps: peakTotalQps,
+  })
 
   if (flags.cache && redisClass) {
     nodes.push({
@@ -423,13 +479,21 @@ function buildGraph(opts: {
       kind: 'cache',
       label: flags.cacheCluster ? 'Redis cluster' : 'Redis',
       detail: redisClass,
+      count: redisClustered ? 3 : 1,
+      stack: redisClustered,
+      why: input.instantConsistency
+        ? 'Write-through / tiny TTL — present, but not a stale-read shortcut.'
+        : 'Cacheable reads stop here so Postgres never sees them.',
+      appearNote: '+ Redis — cacheable reads leave the database path',
     })
     const cacheRps = peakReadQps * cacheHitUsed
     edges.push({
       id: 'e-app-cache',
-      source: firstApp,
+      source: 'app',
       target: 'cache',
-      label: cacheHitUsed > 0 ? `~${formatQpsShort(cacheRps)} rps hits` : 'write-through',
+      label: cacheHitUsed > 0 ? rpsLabel(cacheRps, 'hits') : 'write-through',
+      role: cacheHitUsed > 0 ? 'read' : 'write',
+      qps: cacheHitUsed > 0 ? cacheRps : peakWriteQps,
     })
   }
 
@@ -439,29 +503,39 @@ function buildGraph(opts: {
       kind: 'pooler',
       label: 'PgBouncer',
       detail: 'connection pool',
+      why: 'xlarge: multiplex app connections so Postgres is not drowned in clients.',
+      appearNote: '+ PgBouncer — connection pooling at xlarge',
     })
     edges.push({
       id: 'e-app-pooler',
-      source: firstApp,
+      source: 'app',
       target: 'pooler',
-      label: `~${formatQpsShort(effectiveDbReads + peakWriteQps)} rps`,
+      label: rpsLabel(effectiveDbReads + peakWriteQps),
+      role: 'mixed',
+      qps: effectiveDbReads + peakWriteQps,
     })
   }
 
-  const dbParent = flags.pooler ? 'pooler' : firstApp
+  const dbParent = flags.pooler ? 'pooler' : 'app'
   nodes.push({
     id: 'primary',
     kind: 'primary',
     label: `${pgName} primary`,
     detail: `${dbTitle} · ${formatGb(diskGb)}`,
+    why: input.instantConsistency
+      ? 'Source of truth. Instant consistency means user-facing reads hit the primary.'
+      : 'Source of truth for writes, plus whatever cache-miss reads fit its budget.',
+    utilization: clampUtil(
+      Math.max(readsOnPrimary / Math.max(db.primaryReadBudgetQps, 1), peakWriteQps / Math.max(db.writeBudgetQps, 1)),
+    ),
   })
   edges.push({
     id: 'e-db-writes',
     source: dbParent,
     target: 'primary',
-    label: input.instantConsistency
-      ? `~${formatQpsShort(peakReadQps + peakWriteQps)} rps`
-      : `~${formatQpsShort(Math.min(effectiveDbReads, db.primaryReadBudgetQps) + peakWriteQps)} rps`,
+    label: rpsLabel(dbTraffic),
+    role: input.instantConsistency ? 'mixed' : peakWriteQps >= readsOnPrimary ? 'write' : 'mixed',
+    qps: dbTraffic,
   })
 
   if (replicas > 0) {
@@ -471,13 +545,25 @@ function buildGraph(opts: {
       label: replicas === 1 ? 'Read replica' : `Read replicas × ${replicas}`,
       detail: `${dbTitle} · reads`,
       count: replicas,
+      stack: replicas > 1,
+      why: 'Serves leftover cache-miss reads the primary cannot. Async — stale vs primary.',
+      appearNote: '+ replica — leftover reads overflowed the primary',
+      utilization: clampUtil(replicaReads / Math.max(replicas * db.replicaQps, 1)),
     })
-    const replicaReads = Math.max(0, effectiveDbReads - db.primaryReadBudgetQps)
     edges.push({
       id: 'e-app-replica',
       source: dbParent,
       target: 'replica',
-      label: `~${formatQpsShort(replicaReads)} rps reads`,
+      label: rpsLabel(replicaReads, 'reads'),
+      role: 'read',
+      qps: replicaReads,
+    })
+    edges.push({
+      id: 'e-repl-stream',
+      source: 'primary',
+      target: 'replica',
+      label: 'replication (async)',
+      role: 'replication',
     })
   }
 
@@ -487,12 +573,16 @@ function buildGraph(opts: {
       kind: 'queue',
       label: queueName,
       detail: 'async writes',
+      why: `Peak writes ${formatQpsShort(peakWriteQps)} rps crossed ${QUEUE_WRITE_QPS} — leave the request path.`,
+      appearNote: `+ queue — writes crossed ${QUEUE_WRITE_QPS} rps`,
     })
     edges.push({
       id: 'e-app-queue',
-      source: firstApp,
+      source: 'app',
       target: 'queue',
-      label: `~${formatQpsShort(peakWriteQps)} rps writes`,
+      label: rpsLabel(peakWriteQps, 'writes'),
+      role: 'async',
+      qps: peakWriteQps,
     })
   }
 
@@ -502,16 +592,94 @@ function buildGraph(opts: {
       kind: 'object',
       label: objectName,
       detail: 'media / blobs',
+      why: 'Blobs stay out of Postgres. The database is not a file server.',
+      appearNote: '+ object store — media blobs',
     })
     edges.push({
       id: 'e-app-object',
-      source: firstApp,
+      source: 'app',
       target: 'object',
       label: 'uploads',
+      role: 'write',
+      qps: peakWriteQps,
     })
   }
 
+  nodes.push(...ghostNodes(opts))
   return { nodes, edges }
+}
+
+function ghostNodes(
+  opts: {
+    input: ArchitectureInput
+    flags: RecipeFlags
+    band: Band
+    db: ReturnType<typeof dbSizeFor>
+    peakWriteQps: number
+    effectiveDbReads: number
+    replicas: number
+  },
+): ArchNode[] {
+  const { input, flags, band, db, peakWriteQps, effectiveDbReads, replicas } = opts
+  if (flags.comboAppDb) return []
+
+  const ghosts: ArchNode[] = []
+
+  const add = (node: ArchNode) => {
+    if (ghosts.some((g) => g.id === node.id) || ghosts.length >= 3) return
+    ghosts.push(node)
+  }
+
+  if (replicas === 0) {
+    add({
+      id: 'replica',
+      kind: 'replica',
+      label: 'Read replica',
+      detail: input.instantConsistency
+        ? 'not yet · instant consistency'
+        : `not yet · primary ${formatQpsShort(db.primaryReadBudgetQps)} rps > ${formatQpsShort(effectiveDbReads)} miss rps`,
+      ghost: true,
+      why: input.instantConsistency
+        ? 'Instant consistency forbids serving user-facing reads from a lagging replica.'
+        : 'The primary still has read budget left, so a replica would be idle.',
+    })
+  }
+
+  const largeish = band === 'large' || band === 'xlarge'
+  if (largeish && !flags.queue) {
+    add({
+      id: 'ghost-queue',
+      kind: 'queue',
+      label: input.provider === 'cheap' ? 'Queue' : 'SQS',
+      detail: `not yet · writes ${formatQpsShort(peakWriteQps)} rps ≤ ${QUEUE_WRITE_QPS}`,
+      ghost: true,
+      why: `A managed queue appears once peak writes cross ${QUEUE_WRITE_QPS} rps.`,
+    })
+  }
+
+  if (band === 'small' && !flags.cache) {
+    add({
+      id: 'ghost-cache',
+      kind: 'cache',
+      label: 'Redis',
+      detail: `not yet · reads/writes ≤ ${READ_WRITE_CACHE_RATIO}`,
+      ghost: true,
+      why: `Small band only adds a cache when reads outpace writes by more than ${READ_WRITE_CACHE_RATIO}×.`,
+    })
+  }
+
+  if (!flags.cdn && band === 'medium') {
+    add({
+      id: 'ghost-cdn',
+      kind: 'cdn',
+      label: 'CDN',
+      detail: 'not yet · static CDN from large (or pick content/media)',
+      ghost: true,
+      why: 'CRUD APIs wait until large for a CDN. Content/media gets one at medium.',
+    })
+  }
+
+  return ghosts.slice(0, 3)
 }
 
 function formatUsersCompact(n: number): string {

@@ -120,7 +120,7 @@ describe('instant consistency', () => {
       }),
     )
     expect(result.metrics.replicas).toBeGreaterThan(0)
-    expect(result.nodes.some((n) => n.kind === 'replica')).toBe(true)
+    expect(result.nodes.some((n) => n.kind === 'replica' && !n.ghost)).toBe(true)
   })
 
   it('forces replicas to 0 and ignores cache hit rate', () => {
@@ -145,7 +145,8 @@ describe('instant consistency', () => {
     expect(eventual.metrics.replicas).toBeGreaterThan(0)
     expect(instant.metrics.replicas).toBe(0)
     expect(instant.metrics.cacheHitUsed).toBe(0)
-    expect(instant.nodes.some((n) => n.kind === 'replica')).toBe(false)
+    expect(instant.nodes.some((n) => n.kind === 'replica' && !n.ghost)).toBe(false)
+    expect(instant.nodes.some((n) => n.kind === 'replica' && n.ghost)).toBe(true)
     expect(instant.explanation.some((line) => /instant consistency/i.test(line))).toBe(true)
   })
 })
@@ -154,8 +155,8 @@ describe('recipe flags', () => {
   it('adds cache on small only when reads/writes > 8', () => {
     const noCache = sizeArchitecture(atPeakQps(80, { readsPerUserDay: 80, writesPerUserDay: 20 }))
     const withCache = sizeArchitecture(atPeakQps(80, { readsPerUserDay: 90, writesPerUserDay: 10 }))
-    expect(noCache.nodes.some((n) => n.kind === 'cache')).toBe(false)
-    expect(withCache.nodes.some((n) => n.kind === 'cache')).toBe(true)
+    expect(noCache.nodes.some((n) => n.kind === 'cache' && !n.ghost)).toBe(false)
+    expect(withCache.nodes.some((n) => n.kind === 'cache' && !n.ghost)).toBe(true)
   })
 
   it('adds a queue when peak write QPS > 400', () => {
@@ -176,21 +177,21 @@ describe('recipe flags', () => {
       }),
     )
     expect(quiet.band).toBe('large')
-    expect(quiet.nodes.some((n) => n.kind === 'queue')).toBe(false)
-    expect(busy.nodes.some((n) => n.kind === 'queue')).toBe(true)
+    expect(quiet.nodes.some((n) => n.kind === 'queue' && !n.ghost)).toBe(false)
+    expect(busy.nodes.some((n) => n.kind === 'queue' && !n.ghost)).toBe(true)
   })
 
   it('adds PgBouncer on xlarge', () => {
     const result = sizeArchitecture(atPeakQps(12_000))
     expect(result.band).toBe('xlarge')
-    expect(result.nodes.some((n) => n.kind === 'pooler')).toBe(true)
+    expect(result.nodes.some((n) => n.kind === 'pooler' && !n.ghost)).toBe(true)
   })
 
   it('CDN for content/media, not as source of truth when instant is on', () => {
     const result = sizeArchitecture(
       atPeakQps(800, { appShape: 'content', instantConsistency: true }),
     )
-    expect(result.nodes.some((n) => n.kind === 'cdn')).toBe(true)
+    expect(result.nodes.some((n) => n.kind === 'cdn' && !n.ghost)).toBe(true)
     expect(result.explanation.some((line) => /source of truth/i.test(line))).toBe(true)
   })
 })
@@ -208,5 +209,35 @@ describe('cost', () => {
     const aws = sizeArchitecture(input({ provider: 'aws' }))
     const cheap = sizeArchitecture(input({ provider: 'cheap' }))
     expect(cheap.cost.point).toBeLessThan(aws.cost.point)
+  })
+})
+
+describe('diagram teaching metadata', () => {
+  it('renders a single stacked app node even when N ≤ 3', () => {
+    const result = sizeArchitecture(atPeakQps(50, { spare: 0, rpsPerInstance: 200 }))
+    expect(result.metrics.appN).toBe(2)
+    expect(result.nodes.filter((n) => n.kind === 'app')).toHaveLength(1)
+    expect(result.nodes.find((n) => n.kind === 'app')?.id).toBe('app')
+    expect(result.edges.every((e) => e.source !== 'app-1' && e.target !== 'app-2')).toBe(true)
+  })
+
+  it('tags edges with a traffic role', () => {
+    const result = sizeArchitecture(DEFAULT_INPUT)
+    expect(result.edges.length).toBeGreaterThan(0)
+    expect(result.edges.every((e) => e.role)).toBe(true)
+    expect(result.edges.some((e) => e.role === 'async')).toBe(true)
+  })
+
+  it('shows a ghost replica when the primary still has read budget', () => {
+    const result = sizeArchitecture(DEFAULT_INPUT)
+    expect(result.metrics.replicas).toBe(0)
+    const ghost = result.nodes.find((n) => n.kind === 'replica' && n.ghost)
+    expect(ghost).toBeTruthy()
+    expect(ghost?.detail).toMatch(/not yet/i)
+  })
+
+  it('draws async replication from primary to a real replica', () => {
+    const result = sizeArchitecture(input({ users: 1_000_000, cacheHitRate: 0 }))
+    expect(result.edges.some((e) => e.role === 'replication' && e.source === 'primary')).toBe(true)
   })
 })
