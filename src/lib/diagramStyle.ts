@@ -1,12 +1,32 @@
+import type { Theme } from './theme'
 import type { EdgeRole } from './types'
 
-export const EDGE_COLOR: Record<EdgeRole, string> = {
-  read: '#1e4d9c',
+const PAPER: Record<EdgeRole, string> = {
+  read: '#1d4ed8',
   write: '#b8860b',
-  mixed: '#142010',
+  mixed: '#1c1a12',
   async: '#5c4a16',
-  static: '#5a6b50',
-  replication: '#5a6b50',
+  static: '#6b5e3a',
+  replication: '#6b5e3a',
+}
+
+const BLUEPRINT: Record<EdgeRole, string> = {
+  read: '#7fb4ff',
+  write: '#f5c518',
+  mixed: '#d6e4f5',
+  async: '#c4a35a',
+  static: '#5a7fa0',
+  replication: '#5a7fa0',
+}
+
+export const EDGE_COLOR = PAPER
+
+export function edgeColors(theme: Theme): Record<EdgeRole, string> {
+  return theme === 'blueprint' ? BLUEPRINT : PAPER
+}
+
+export function sheetFill(theme: Theme): string {
+  return theme === 'blueprint' ? '#122238' : '#f4efdd'
 }
 
 export function strokeWidthFor(qps: number | undefined): number {

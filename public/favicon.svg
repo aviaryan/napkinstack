@@ -1,9 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="3" fill="#9fb892"/>
-  <rect x="3" y="3" width="26" height="26" fill="#dfe8d4" stroke="#142010" stroke-width="1.2"/>
-  <rect x="6" y="8" width="8" height="6" fill="#e4ebd4" stroke="#142010" stroke-width="1"/>
-  <rect x="18" y="8" width="8" height="6" fill="#e4ebd4" stroke="#142010" stroke-width="1"/>
-  <rect x="11" y="18" width="10" height="6" fill="#f5c518" stroke="#142010" stroke-width="1"/>
-  <path d="M10 14v2.5c0 .8.7 1.5 1.5 1.5H14" stroke="#1e4d9c" stroke-width="1.1"/>
-  <path d="M22 14v2.5c0 .8-.7 1.5-1.5 1.5H18" stroke="#1e4d9c" stroke-width="1.1"/>
+  <rect width="32" height="32" rx="3" fill="#cdbf9b"/>
+  <rect x="3" y="3" width="26" height="26" fill="#f4efdd" stroke="#1c1a12" stroke-width="1.2"/>
+  <path d="M4 22.5 12 7h4L8 22.5H4Z" fill="#f5c518"/>
+  <rect x="8" y="9" width="7" height="5.5" fill="#fbf8ec" stroke="#1c1a12" stroke-width="1"/>
+  <rect x="17" y="9" width="7" height="5.5" fill="#fbf8ec" stroke="#1c1a12" stroke-width="1"/>
+  <rect x="12" y="18" width="9" height="5.5" fill="#f5c518" stroke="#1c1a12" stroke-width="1"/>
+  <path d="M11.5 14.5v2c0 .7.6 1.2 1.3 1.2H15" stroke="#1d4ed8" stroke-width="1.1"/>
+  <path d="M20.5 14.5v2c0 .7-.6 1.2-1.3 1.2H17" stroke="#1d4ed8" stroke-width="1.1"/>
 </svg>

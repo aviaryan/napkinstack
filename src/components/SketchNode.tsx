@@ -37,9 +37,9 @@ export function SketchNode({ data }: NodeProps<Node<SketchNodeData>>) {
       className={`relative h-[70px] w-[160px] border bg-node px-2 py-1.5 ${
         ghost
           ? 'border-dashed border-ink/40 bg-sheet/70 text-muted opacity-70'
-          : 'border-ink shadow-[2px_2px_0_rgba(20,32,16,0.18)]'
+          : 'border-ink shadow-[2px_2px_0_var(--shadow-ink)]'
       } ${db && !ghost ? 'bg-panel' : ''} ${
-        data.highlight ? 'outline outline-2 outline-offset-1 outline-mark' : ''
+        data.highlight ? 'node-enter outline outline-2 outline-offset-1 outline-mark' : ''
       } ${data.selected ? 'ring-2 ring-ballpoint' : ''} ${stack ? 'node-stack' : ''}`}
       data-testid={ghost ? `node-ghost-${data.kind}` : `node-${data.kind}`}
     >

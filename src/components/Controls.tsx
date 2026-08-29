@@ -1,7 +1,10 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import { matchingPresetId, PRESETS } from '../data/presets'
 import { DEFAULT_INPUT, USERS_MAX, USERS_MIN, sliderToUsers, usersToSlider } from '../lib/defaults'
 import { formatUsers } from '../lib/format'
 import type { ArchitectureInput, ArchitectureResult, Provider } from '../lib/types'
+import { BandBadge } from './BandBadge'
+import { ExportBar } from './ExportBar'
 
 interface ControlsProps {
   input: ArchitectureInput
@@ -17,9 +20,12 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
 
   const avg = result.metrics.avgReadQps + result.metrics.avgWriteQps
   const cacheDisabled = input.instantConsistency
+  const activePreset = matchingPresetId(input)
+  const userPct = `${Math.round(usersToSlider(input.users) * 1000) / 10}%`
+  const cachePct = `${Math.round(input.cacheHitRate * 100)}%`
 
   return (
-    <aside className="flex flex-col gap-5 border-ink/15 bg-panel/80 p-4 sm:p-5 lg:border-r">
+    <aside className="flex flex-col gap-5 border-ink/15 bg-panel/80 p-4 sm:p-5 lg:h-full lg:overflow-y-auto lg:border-r">
       <header className="flex items-start justify-between gap-3">
         <div>
           <p className="font-mono text-[10px] font-medium tracking-[0.22em] text-ballpoint uppercase">Field notes</p>
@@ -28,15 +34,41 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
         <button
           type="button"
           onClick={onReset}
-          className="shrink-0 border border-ink bg-sheet px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider hover:bg-mark"
+          data-testid="reset"
+          className="shrink-0 border border-ink bg-sheet px-2.5 py-1 font-mono text-[11px] tracking-wider uppercase hover:bg-mark"
         >
-          Reset
+          Tear off sheet
         </button>
       </header>
 
       <p className="max-w-prose text-sm leading-relaxed text-muted">
         Drag the knobs. The diagram is a recipe, not a profiler — every number is a transparent guess.
       </p>
+
+      <ExportBar result={result} />
+
+      <fieldset>
+        <legend className="mb-1.5 font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Scenarios</legend>
+        <div className="grid grid-cols-2 gap-1.5">
+          {PRESETS.map((preset) => {
+            const active = activePreset === preset.id
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                title={preset.blurb}
+                data-testid={`preset-${preset.id}`}
+                onClick={() => onChange({ ...preset.input })}
+                className={`border px-2 py-1.5 text-left font-mono text-[10px] tracking-wide uppercase ${
+                  active ? 'border-ink bg-ink text-sheet' : 'border-ink/30 bg-sheet text-ink hover:bg-mark/70'
+                }`}
+              >
+                {preset.label}
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
 
       <div className="border border-ink bg-sheet px-3 py-3">
         <p className="font-mono text-[11px] text-ink" data-testid="load-summary">
@@ -45,9 +77,7 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
           <span className="font-semibold">{formatQpsPlain(result.metrics.peakTotalQps)}</span> peak QPS
         </p>
         <p className="mt-2">
-          <span className="bg-mark px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-mark-ink uppercase" data-testid="band">
-            band {result.band}
-          </span>
+          <BandBadge band={result.band} testId="band" />
         </p>
       </div>
 
@@ -60,7 +90,8 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
             step={1}
             value={Math.round(usersToSlider(input.users) * 1000)}
             onChange={(e) => set('users', sliderToUsers(Number(e.target.value) / 1000))}
-            className="w-full accent-ballpoint"
+            className="sketch-range"
+            style={{ '--slider-pct': userPct } as CSSProperties}
             aria-label="Expected users, log scale"
           />
           <div className="mt-1 flex items-center justify-between gap-2">
@@ -158,7 +189,8 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
                 disabled={cacheDisabled}
                 aria-label="Cache hit rate percent"
                 onChange={(e) => set('cacheHitRate', Number(e.target.value) / 100)}
-                className="min-w-0 flex-1 accent-ballpoint"
+                className="sketch-range min-w-0 flex-1"
+                style={{ '--slider-pct': cachePct } as CSSProperties}
               />
               <input
                 type="number"

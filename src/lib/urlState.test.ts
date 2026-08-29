@@ -19,4 +19,9 @@ describe('url state', () => {
     expect(parsed.cacheHitRate).toBeCloseTo(0.4)
     expect(parsed.bytesPerUser).toBe(80_000)
   })
+
+  it('ignores the theme param when reading inputs', () => {
+    const parsed = parseInputFromSearch(`u=1000&t=bp`)
+    expect(parsed.users).toBe(1000)
+  })
 })

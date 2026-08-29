@@ -1,4 +1,5 @@
 import { DEFAULT_INPUT, USERS_MAX, USERS_MIN, clamp } from './defaults'
+import { themeToSearchParam, type Theme } from './theme'
 import type { AppShape, ArchitectureInput, Provider } from './types'
 
 const SHAPES: AppShape[] = ['crud', 'content', 'mixed']
@@ -56,8 +57,10 @@ export function inputToSearch(input: ArchitectureInput): string {
   return q.toString()
 }
 
-export function writeUrl(input: ArchitectureInput): void {
-  const qs = inputToSearch(input)
-  const next = `${window.location.pathname}?${qs}${window.location.hash}`
+export function writeUrl(input: ArchitectureInput, theme: Theme = 'paper'): void {
+  const q = new URLSearchParams(inputToSearch(input))
+  const themeParam = themeToSearchParam(theme)
+  if (themeParam) q.set('t', themeParam)
+  const next = `${window.location.pathname}?${q.toString()}${window.location.hash}`
   window.history.replaceState(null, '', next)
 }

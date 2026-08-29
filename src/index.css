@@ -5,16 +5,59 @@
   --font-sans: 'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Red Hat Mono', ui-monospace, monospace;
 
-  --color-pad: #9fb892;
-  --color-sheet: #e4ebd4;
-  --color-panel: #d5deC6;
-  --color-ink: #142010;
-  --color-muted: #3d4a36;
-  --color-rule: #7f9270;
-  --color-ballpoint: #1e4d9c;
+  --color-pad: #cdbf9b;
+  --color-sheet: #f4efdd;
+  --color-panel: #e9e2c8;
+  --color-ink: #1c1a12;
+  --color-muted: #55503d;
+  --color-rule: #b9ad8a;
+  --color-ballpoint: #1d4ed8;
   --color-mark: #f5c518;
   --color-mark-ink: #3a2c00;
-  --color-node: #f3f6ea;
+  --color-node: #fbf8ec;
+}
+
+html[data-theme='blueprint'] {
+  --color-pad: #0d1826;
+  --color-sheet: #122238;
+  --color-panel: #16283f;
+  --color-ink: #e8f1fb;
+  --color-muted: #8aa0b8;
+  --color-rule: #2a4a6a;
+  --color-ballpoint: #7fb4ff;
+  --color-mark: #f5c518;
+  --color-mark-ink: #3a2c00;
+  --color-node: #16283f;
+  --color-grid: rgba(127, 180, 255, 0.1);
+  --color-grid-dot: rgba(127, 180, 255, 0.28);
+  --shadow-ink: rgba(0, 0, 0, 0.45);
+  --color-banner: #071018;
+  --color-banner-ink: #e8f1fb;
+}
+
+html {
+  --color-grid: rgba(28, 26, 18, 0.11);
+  --color-grid-dot: rgba(28, 26, 18, 0.2);
+  --shadow-ink: rgba(28, 26, 18, 0.2);
+  --band-tint: transparent;
+  --color-banner: #1c1a12;
+  --color-banner-ink: #f4efdd;
+}
+
+html[data-band='hobby'] {
+  --band-tint: color-mix(in srgb, #2f6b3a 14%, transparent);
+}
+html[data-band='small'] {
+  --band-tint: color-mix(in srgb, #c9a227 12%, transparent);
+}
+html[data-band='medium'] {
+  --band-tint: color-mix(in srgb, #e4b40d 12%, transparent);
+}
+html[data-band='large'] {
+  --band-tint: color-mix(in srgb, #e07a1a 14%, transparent);
+}
+html[data-band='xlarge'] {
+  --band-tint: color-mix(in srgb, #c43c11 16%, transparent);
 }
 
 html,
@@ -29,9 +72,13 @@ body {
   background-color: var(--color-pad);
   font-family: var(--font-sans);
   background-image:
-    linear-gradient(rgba(20, 32, 16, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(20, 32, 16, 0.055) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(var(--band-tint), var(--band-tint)),
+    linear-gradient(var(--color-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
+  background-size:
+    auto,
+    24px 24px,
+    24px 24px;
 }
 
 ::selection {
@@ -43,6 +90,14 @@ button,
 input,
 select {
   font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-mark);
+  outline-offset: 2px;
 }
 
 .arch-flow {
@@ -60,6 +115,23 @@ select {
   font-weight: 500;
 }
 
+.arch-flow .react-flow__controls {
+  border: 1px solid color-mix(in srgb, var(--color-ink) 25%, transparent);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.arch-flow .react-flow__controls-button {
+  background: var(--color-sheet);
+  border-bottom-color: color-mix(in srgb, var(--color-ink) 20%, transparent);
+  fill: var(--color-ink);
+}
+
+.arch-flow .edge-async .react-flow__edge-path {
+  stroke-dasharray: 6 5;
+  animation: dash-flow 0.7s linear infinite;
+}
+
 .node-stack {
   box-shadow:
     3px 3px 0 0 var(--color-node),
@@ -70,6 +142,127 @@ select {
 
 .arch-flow .react-flow__attribution {
   display: none;
+}
+
+.node-enter {
+  animation: node-pop 150ms ease-out;
+}
+
+.band-stamp {
+  animation: stamp-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes node-pop {
+  from {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes stamp-in {
+  from {
+    transform: scale(1.15);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+@keyframes drawer-up {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.notes-drawer {
+  animation: drawer-up 180ms ease-out;
+}
+
+.sketch-range {
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sketch-range:focus {
+  outline: none;
+}
+
+.sketch-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px var(--color-ink),
+    0 0 0 4px var(--color-mark);
+}
+
+.sketch-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 1px var(--color-ink),
+    0 0 0 4px var(--color-mark);
+}
+
+.sketch-range::-webkit-slider-runnable-track {
+  height: 3px;
+  background: linear-gradient(
+    to right,
+    var(--color-mark) 0 var(--slider-pct, 0%),
+    var(--color-rule) var(--slider-pct, 0%) 100%
+  );
+}
+
+.sketch-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--color-ballpoint);
+  border: 2px solid var(--color-sheet);
+  box-shadow: 0 0 0 1px var(--color-ink);
+}
+
+.sketch-range::-moz-range-track {
+  height: 3px;
+  background: var(--color-rule);
+}
+
+.sketch-range::-moz-range-progress {
+  height: 3px;
+  background: var(--color-mark);
+}
+
+.sketch-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-sheet);
+  border-radius: 50%;
+  background: var(--color-ballpoint);
+  box-shadow: 0 0 0 1px var(--color-ink);
+}
+
+.sketch-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.tabular-cost {
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {

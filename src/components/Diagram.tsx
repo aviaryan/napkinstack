@@ -11,19 +11,25 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { EDGE_COLOR, isDashed, strokeWidthFor } from '../lib/diagramStyle'
-import { formatUsd } from '../lib/format'
+import { edgeColors, isDashed, sheetFill, strokeWidthFor } from '../lib/diagramStyle'
+import { formatUsd, formatUsers } from '../lib/format'
 import { NODE_H, NODE_W, positionNodes, tierBands } from '../lib/layout'
+import { marginNote } from '../lib/marginNote'
+import type { Theme } from '../lib/theme'
 import type { ArchNode, ArchitectureResult } from '../lib/types'
+import { CostDock } from './CostPanel'
 import { SketchNode } from './SketchNode'
 
 const nodeTypes = { sketch: SketchNode, tier: TierBandNode }
+const FIT_PAD = { top: 0.1, right: 0.08, bottom: 0.22, left: 0.06 }
 
 interface DiagramProps {
   result: ArchitectureResult
+  theme: Theme
+  users: number
 }
 
-export function Diagram({ result }: DiagramProps) {
+export function Diagram({ result, theme, users }: DiagramProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<string | null>(null)
@@ -56,56 +62,102 @@ export function Diagram({ result }: DiagramProps) {
     () => toFlowNodes(result, flashIds, selectedId),
     [flashIds, result, selectedId],
   )
-  const builtEdges = useMemo(() => toFlowEdges(result), [result])
+  const builtEdges = useMemo(() => toFlowEdges(result, theme), [result, theme])
   const [nodes, setNodes, onNodesChange] = useNodesState(builtNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(builtEdges)
 
   useEffect(() => {
     setNodes(builtNodes)
     setEdges(builtEdges)
-  }, [builtNodes, builtEdges, setNodes, setEdges])
+  }, [builtEdges, builtNodes, setEdges, setNodes])
 
   const selected = result.nodes.find((n) => n.id === selectedId)
+  const note = marginNote(result)
+  const colors = edgeColors(theme)
+
+  useEffect(() => {
+    setSelectedId((id) => (id && result.nodes.some((n) => n.id === id) ? id : null))
+  }, [result])
 
   return (
     <div
-      className="relative h-[280px] min-h-[280px] border-b border-ink/15 bg-sheet lg:h-[min(52vh,560px)] lg:min-h-[420px]"
+      className="relative isolate h-[min(58vh,480px)] min-h-[340px] bg-sheet lg:h-full lg:min-h-0"
       data-testid="diagram"
     >
-      <Legend />
+      {note ? (
+        <p className="pointer-events-none absolute top-3 right-3 z-10 hidden max-w-[11rem] rotate-[-2deg] font-display text-[13px] leading-snug text-ballpoint italic sm:block">
+          {note}
+        </p>
+      ) : null}
       {toast ? (
         <p className="absolute top-2 left-1/2 z-20 -translate-x-1/2 border border-ink bg-mark px-2 py-1 font-mono text-[10px] text-mark-ink">
           {toast}
         </p>
       ) : null}
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.22, minZoom: 0.2, maxZoom: 1.15 }}
-        minZoom={0.18}
-        maxZoom={1.6}
-        proOptions={{ hideAttribution: true }}
-        className="arch-flow"
-        onInit={(instance) => {
-          void instance.fitView({ padding: 0.22 })
-        }}
-        onNodeClick={(_, node) => {
-          if (node.type === 'tier') return
-          setSelectedId(node.id)
-        }}
-        onPaneClick={() => setSelectedId(null)}
-      >
-        <Background gap={24} size={1} color="rgba(20,32,16,0.16)" />
-        <FlowControls showInteractive={false} />
-        <FitOnChange
-          signature={`${result.band}-${result.nodes.map((n) => n.id).join(',')}-${result.metrics.appN}`}
-        />
-      </ReactFlow>
+      <div className="absolute inset-0 z-0">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: FIT_PAD, minZoom: 0.2, maxZoom: 1.35 }}
+          minZoom={0.18}
+          maxZoom={1.6}
+          proOptions={{ hideAttribution: true }}
+          className="arch-flow"
+          onInit={(instance) => {
+            void instance.fitView({ padding: FIT_PAD })
+          }}
+          onNodeClick={(_, node) => {
+            if (node.type === 'tier') return
+            setSelectedId(node.id)
+          }}
+          onPaneClick={() => setSelectedId(null)}
+        >
+          <Background gap={24} size={1} color="var(--color-grid-dot)" />
+          <FlowControls showInteractive={false} position="top-left" className="!hidden sm:!flex" />
+          <FitOnChange
+            signature={`${result.band}-${result.nodes.map((n) => n.id).join(',')}-${result.metrics.appN}-${theme}`}
+          />
+        </ReactFlow>
+      </div>
+      <SheetStamp result={result} users={users} colors={colors} />
+      <CostDock result={result} />
       {selected ? <NodeCard node={selected} onClose={() => setSelectedId(null)} /> : null}
+    </div>
+  )
+}
+
+function SheetStamp({
+  result,
+  users,
+  colors,
+}: {
+  result: ArchitectureResult
+  users: number
+  colors: ReturnType<typeof edgeColors>
+}) {
+  return (
+    <div className="pointer-events-none absolute right-2 bottom-2 z-10 hidden border border-ink/25 bg-sheet/90 px-2 py-1.5 sm:block">
+      <p className="text-right font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+        ArchSketch · {formatUsers(users)} users · band {result.band} · {formatUsd(result.cost.point)}/mo
+      </p>
+      <ul className="mt-1.5 flex justify-end gap-3 font-mono text-[9px] tracking-wide text-ink uppercase">
+        <li className="flex items-center gap-1.5">
+          <span className="inline-block h-[2px] w-4" style={{ background: colors.read }} />
+          reads
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span className="inline-block h-[2px] w-4" style={{ background: colors.write }} />
+          writes
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span className="inline-block w-4 border-t border-dashed" style={{ borderColor: colors.async }} />
+          async
+        </li>
+      </ul>
     </div>
   )
 }
@@ -155,9 +207,11 @@ function toFlowNodes(
   return [...tiers, ...sketch]
 }
 
-function toFlowEdges(result: ArchitectureResult): Edge[] {
+function toFlowEdges(result: ArchitectureResult, theme: Theme): Edge[] {
+  const colors = edgeColors(theme)
+  const bg = sheetFill(theme)
   return result.edges.map((edge) => {
-    const color = EDGE_COLOR[edge.role]
+    const color = colors[edge.role]
     const width = strokeWidthFor(edge.qps)
     const dashed = isDashed(edge.role)
     const branch = edge.role === 'async' || edge.role === 'read' || edge.role === 'replication'
@@ -171,13 +225,14 @@ function toFlowEdges(result: ArchitectureResult): Edge[] {
       label: edge.label,
       type: 'smoothstep',
       animated: false,
+      className: edge.role === 'async' ? 'edge-async' : undefined,
       style: {
         stroke: color,
         strokeWidth: width,
         strokeDasharray: dashed ? '5 4' : undefined,
       },
       labelStyle: { fill: color, fontFamily: 'Red Hat Mono, monospace', fontSize: 10, fontWeight: 500 },
-      labelBgStyle: { fill: '#e4ebd4', fillOpacity: 1 },
+      labelBgStyle: { fill: bg, fillOpacity: 1 },
       labelBgPadding: [4, 2] as [number, number],
       labelPosition: branch ? 0.38 : 0.5,
       markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
@@ -185,28 +240,9 @@ function toFlowEdges(result: ArchitectureResult): Edge[] {
   })
 }
 
-function Legend() {
-  return (
-    <ul className="pointer-events-none absolute top-2 left-3 z-10 space-y-0.5 border border-ink/20 bg-sheet/90 px-2 py-1.5 font-mono text-[9px] tracking-wide text-ink uppercase">
-      <li className="flex items-center gap-2">
-        <span className="inline-block h-[2px] w-5 bg-ballpoint" />
-        reads
-      </li>
-      <li className="flex items-center gap-2">
-        <span className="inline-block h-[2px] w-5 bg-[#b8860b]" />
-        writes
-      </li>
-      <li className="flex items-center gap-2">
-        <span className="inline-block w-5 border-t border-dashed border-[#5c4a16]" />
-        async
-      </li>
-    </ul>
-  )
-}
-
 function NodeCard({ node, onClose }: { node: ArchNode; onClose: () => void }) {
   return (
-    <div className="absolute bottom-2 left-12 z-20 max-w-xs border border-ink bg-sheet px-3 py-2 shadow-[3px_3px_0_rgba(20,32,16,0.2)]">
+    <div className="absolute top-2 right-2 left-2 z-20 max-w-xs border border-ink bg-sheet px-3 py-2 shadow-[3px_3px_0_var(--shadow-ink)] sm:top-auto sm:right-auto sm:bottom-28 sm:left-2">
       <div className="flex items-start justify-between gap-3">
         <p className="font-display text-sm font-bold">{node.label}</p>
         <button
@@ -241,7 +277,7 @@ function FitOnChange({ signature }: { signature: string }) {
     const run = () => {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
-        void fitView({ padding: 0.22, duration: 120, minZoom: 0.18, maxZoom: 1.15 })
+        void fitView({ padding: FIT_PAD, duration: 120, minZoom: 0.18, maxZoom: 1.35 })
       }, 60)
     }
     run()

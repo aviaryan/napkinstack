@@ -2,12 +2,35 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          var q = new URLSearchParams(location.search).get('t')
+          var t =
+            q === 'bp' || q === 'blueprint'
+              ? 'blueprint'
+              : q === 'paper'
+                ? 'paper'
+                : localStorage.getItem('archsketch-theme')
+          if (t === 'blueprint') document.documentElement.setAttribute('data-theme', 'blueprint')
+        } catch (e) {}
+      })()
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="ArchSketch — a back-of-the-envelope architecture sketch from capacity inputs. Teaching tool, not capacity planning."
+      content="Drag a slider, watch the architecture and the AWS bill grow. A back-of-the-envelope sketch — not capacity planning."
     />
+    <meta property="og:title" content="ArchSketch" />
+    <meta
+      property="og:description"
+      content="Drag a slider, watch the architecture and the AWS bill grow."
+    />
+    <meta property="og:image" content="/og.svg" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/og.svg" />
     <title>ArchSketch</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -8,9 +8,10 @@ Use **pnpm** (`pnpm install`, `pnpm dev`, `pnpm test`, `pnpm build`).
 
 ## Where to change things
 
-- `src/data/` is the only place for bands, recipes, instance sizes, and prices. Do not inline those constants in the UI.
-- `src/lib/sizeArchitecture.ts` is the pure sizer. Keep it side-effect free. Tests live in `src/lib/*.test.ts` (vitest).
+- `src/data/` is the only place for bands, recipes, instance sizes, prices, and named presets. Do not inline those constants in the UI.
+- `src/lib/sizeArchitecture.ts` is the pure sizer. Keep it side-effect free. Tests live in `src/lib/*.test.ts` and `src/data/*.test.ts` (vitest).
 - Live canvas is `@xyflow/react`. Do not replace it with Mermaid/Excalidraw (Mermaid export as copy-paste is fine).
+- Theme tokens live in `src/index.css` (`@theme` + `html[data-theme=blueprint]`). Share state via the query string (`src/lib/urlState.ts`); blueprint is `t=bp`.
 
 ## Constraints
 

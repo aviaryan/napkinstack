@@ -1,8 +1,8 @@
 # ArchSketch
 
-A static, no-backend teaching tool. You type a few capacity numbers; it draws a boring system diagram and a rough monthly cost.
+Drag a slider, watch the architecture and the AWS bill grow.
 
-This is a **demo / back-of-the-envelope sketch**, not capacity planning. Numbers come from hardcoded recipes and formulas in `src/data/`. Nothing is profiled. No LLM is called.
+A static, no-backend teaching tool. You type a few capacity numbers; it draws a boring system diagram and a rough monthly cost. This is a **demo / back-of-the-envelope sketch**, not capacity planning. Numbers come from hardcoded recipes and formulas in `src/data/`. Nothing is profiled. No LLM is called.
 
 ## What this is not
 
@@ -41,9 +41,11 @@ Bands are chosen from **peak QPS**, not user count:
 | large  | < 10 000 |
 | xlarge | ≥ 10 000 |
 
-The live canvas is `@xyflow/react`. There is an optional **Copy as Mermaid** dump of the same graph.
+The live canvas is `@xyflow/react`. **Share** copies the URL (every knob is in the query string). **PNG** snapshots the sheet. **Mermaid** dumps the same graph.
 
-Share a sketch: the query string serializes every input. Reload or send the link.
+Presets on the left — *Side project*, *HN launch*, *Series A*, *Instagram-scale* — are just `ArchitectureInput` values in `src/data/presets.ts`.
+
+Paper / Blueprint in the banner switches the sheet. Blueprint is stored in `localStorage` and as `t=bp` on shared links.
 
 ## Tweak recipes, sizes, prices
 
@@ -52,6 +54,7 @@ Share a sketch: the query string serializes every input. Reload or send the link
 - `recipes.ts` — which boxes appear at each band (cache, CDN, queue, pooler, …)
 - `sizes.ts` — instance classes, read budgets, replica QPS
 - `prices.ts` — 2026 ballpark USD/month (`asOf: "2026-08"`). **update me** when you refresh numbers
+- `presets.ts` — named scenarios
 
 Two price tables: AWS-ish and cheaper-managed (PlanetScale / Fly-flavored labels and dollars). Same diagram, different `$`.
 
