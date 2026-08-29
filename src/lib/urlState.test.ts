@@ -10,7 +10,7 @@ describe('url state', () => {
 
   it('restores a custom sketch from the query string', () => {
     const parsed = parseInputFromSearch(
-      'u=50000&r=20&w=5&i=1&s=content&p=3&k=12&c=40&q=150&d=80&n=1&f=cheap',
+      'u=50000&r=20&w=5&i=1&s=content&p=3&k=12&c=40&q=150&d=80&n=1&f=cheap&o=40',
     )
     expect(parsed.users).toBe(50000)
     expect(parsed.instantConsistency).toBe(true)
@@ -18,6 +18,13 @@ describe('url state', () => {
     expect(parsed.provider).toBe('cheap')
     expect(parsed.cacheHitRate).toBeCloseTo(0.4)
     expect(parsed.bytesPerUser).toBe(80_000)
+    expect(parsed.cdnOffload).toBeCloseTo(0.4)
+  })
+
+  it('defaults CDN offload from app shape when o is missing', () => {
+    expect(parseInputFromSearch('s=content').cdnOffload).toBeCloseTo(0.65)
+    expect(parseInputFromSearch('s=mixed').cdnOffload).toBeCloseTo(0.35)
+    expect(parseInputFromSearch('s=crud').cdnOffload).toBe(0)
   })
 
   it('ignores the theme param when reading inputs', () => {

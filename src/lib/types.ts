@@ -28,6 +28,8 @@ export interface ArchitectureInput {
   bytesPerUser: number
   spare: number
   provider: Provider
+  /** Fraction of *read* traffic a CDN absorbs at the edge (0–0.95). Ignored when no CDN. */
+  cdnOffload: number
 }
 
 export type EdgeRole = 'read' | 'write' | 'mixed' | 'async' | 'static' | 'replication'
@@ -81,11 +83,18 @@ export interface ArchitectureMetrics {
   peakReadQps: number
   peakWriteQps: number
   peakTotalQps: number
+  originReadQps: number
+  originWriteQps: number
+  originTotalQps: number
   storageGb: number
   appN: number
+  appCapacityRps: number
   replicas: number
+  shards: number
+  cacheNodes: number
   effectiveDbReads: number
   cacheHitUsed: number
+  cdnOffloadUsed: number
 }
 
 export interface ArchitectureResult {
@@ -111,8 +120,10 @@ export interface RecipeFlags {
   allowReplicas: boolean
 }
 
+export type AppSizeKey = 'small' | 'medium' | 'large' | 'xlarge' | '2xlarge'
+
 export interface AppSize {
-  key: 'small' | 'medium' | 'large'
+  key: AppSizeKey
   vcpu: number
   ramGb: number
   label: string
@@ -124,10 +135,18 @@ export interface DbSize {
   primaryReadBudgetQps: number
   replicaQps: number
   writeBudgetQps: number
+  storageBudgetGb: number
+}
+
+export interface DbPlan {
+  size: DbSize
+  shards: number
+  replicas: number
 }
 
 export interface RedisSize {
   class: string
   cheapClass: string
   clustered: boolean
+  nodes: number
 }

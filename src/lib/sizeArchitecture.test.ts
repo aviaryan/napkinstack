@@ -101,12 +101,123 @@ describe('app instances and HA', () => {
     expect(result.metrics.appN).toBe(2)
   })
 
-  it('adds spare instances on top of ceil(peak / rps)', () => {
+  it('adds spare instances on top of ceil(origin / capacity)', () => {
     const result = sizeArchitecture(
       atPeakQps(400, { spare: 2, rpsPerInstance: 200 }),
     )
     expect(result.band).toBe('medium')
-    expect(result.metrics.appN).toBe(4)
+    // medium floor is 2 vCPU → capacity 200 × 2/4 = 100
+    expect(result.metrics.appN).toBe(6)
+    expect(result.metrics.appCapacityRps).toBe(100)
+  })
+})
+
+describe('scale up, shards, offload', () => {
+  it('picks bigger app boxes at IG-SCALE instead of thousands of 4-vCPU VMs', () => {
+    const result = sizeArchitecture(
+      input({
+        users: 80_000_000,
+        readsPerUserDay: 120,
+        writesPerUserDay: 12,
+        appShape: 'content',
+        peakFactor: 8,
+        cacheHitRate: 0.9,
+        rpsPerInstance: 250,
+        bytesPerUser: 80_000,
+        spare: 4,
+        cdnOffload: 0.65,
+      }),
+    )
+    expect(result.band).toBe('xlarge')
+    expect(result.metrics.appN).toBeLessThan(500)
+    expect(result.nodes.find((n) => n.kind === 'app')?.detail).toMatch(/16 vCPU/)
+    expect(result.metrics.shards).toBeGreaterThanOrEqual(2)
+    expect(result.metrics.replicas).toBeLessThanOrEqual(5)
+    expect(result.nodes.some((n) => n.kind === 'primary' && /sharded/i.test(n.label))).toBe(true)
+    expect(result.metrics.cdnOffloadUsed).toBeCloseTo(0.65)
+    expect(result.metrics.originTotalQps).toBeLessThan(result.metrics.peakTotalQps * 0.6)
+    expect(result.metrics.cacheNodes).toBeGreaterThanOrEqual(3)
+  })
+
+  it('CDN offload shrinks the app fleet versus the same sketch at 0%', () => {
+    const base = {
+      users: 2_000_000,
+      readsPerUserDay: 80,
+      writesPerUserDay: 8,
+      appShape: 'content' as const,
+      peakFactor: 6,
+      cacheHitRate: 0.8,
+      rpsPerInstance: 200,
+      spare: 2,
+    }
+    const none = sizeArchitecture(input({ ...base, cdnOffload: 0 }))
+    const off = sizeArchitecture(input({ ...base, cdnOffload: 0.65 }))
+    expect(off.metrics.originTotalQps).toBeLessThan(none.metrics.originTotalQps)
+    expect(off.metrics.appN).toBeLessThan(none.metrics.appN)
+    expect(off.explanation.some((line) => /edge/i.test(line))).toBe(true)
+  })
+
+  it('never fans out more than 5 replicas per shard', () => {
+    const result = sizeArchitecture(
+      input({
+        users: 20_000_000,
+        readsPerUserDay: 200,
+        writesPerUserDay: 2,
+        cacheHitRate: 0,
+        instantConsistency: false,
+        appShape: 'crud',
+        peakFactor: 8,
+        cdnOffload: 0,
+      }),
+    )
+    expect(result.metrics.replicas).toBeLessThanOrEqual(5)
+  })
+})
+
+describe('cost realism', () => {
+  it('does not drop the point estimate as users grow', () => {
+    const users = [1_000, 10_000, 100_000, 1_000_000, 10_000_000, 80_000_000]
+    let prev = 0
+    for (const u of users) {
+      const point = sizeArchitecture(input({ users: u, appShape: 'content', cdnOffload: 0.65 })).cost.point
+      expect(point).toBeGreaterThanOrEqual(prev * 0.98)
+      prev = point
+    }
+  })
+
+  it('prices the queue from write volume, not a flat $22', () => {
+    const quiet = sizeArchitecture(
+      input({
+        users: 86400,
+        readsPerUserDay: 2000,
+        writesPerUserDay: 401,
+        peakFactor: 1,
+      }),
+    )
+    const busy = sizeArchitecture(
+      input({
+        users: 80_000_000,
+        readsPerUserDay: 120,
+        writesPerUserDay: 12,
+        appShape: 'content',
+        peakFactor: 8,
+        cdnOffload: 0.65,
+      }),
+    )
+    const quietQ = quiet.cost.items.find((i) => /SQS|queue/i.test(i.name))
+    const busyQ = busy.cost.items.find((i) => /SQS|queue/i.test(i.name))
+    expect(quietQ).toBeTruthy()
+    expect(busyQ).toBeTruthy()
+    expect(busyQ!.monthly).toBeGreaterThan(10_000)
+    expect(quietQ!.monthly).toBeLessThan(500)
+  })
+
+  it('bills egress from average QPS so peak factor does not 8× the line', () => {
+    const lowPeak = sizeArchitecture(input({ users: 1_000_000, peakFactor: 2, payloadKb: 5 }))
+    const highPeak = sizeArchitecture(input({ users: 1_000_000, peakFactor: 8, payloadKb: 5 }))
+    const eLow = lowPeak.cost.items.find((i) => i.name.startsWith('Egress'))!.monthly
+    const eHigh = highPeak.cost.items.find((i) => i.name.startsWith('Egress'))!.monthly
+    expect(eHigh).toBeCloseTo(eLow, 5)
   })
 })
 

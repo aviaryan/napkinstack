@@ -1,3 +1,9 @@
+import {
+  APP_POOL_PER_INSTANCE,
+  CACHE_NODE_BUDGET_QPS,
+  FLEET_TARGET,
+  REPLICA_CAP,
+} from '../data/sizes'
 import type { ArchitectureInput, ArchitectureMetrics, Band, RecipeFlags } from './types'
 import { formatQpsShort, formatUsers } from './format'
 
@@ -45,11 +51,17 @@ export function explainArchitecture(
     }
   } else {
     lines.push(
-      `~${peak} peak QPS is still a boring monolith — just a large one. Add connection pooling (PgBouncer) and plan for sharding the primary later; do not invent Kubernetes for this.`,
+      `~${peak} peak QPS is still a boring monolith — just a large one. Scale up before out: bigger boxes keep the fleet under ${FLEET_TARGET}.`,
     )
-    lines.push(
-      `${metrics.appN} app instances sit behind one load balancer. Multiple app pools (API vs workers) are enough; skip a mesh of microservices.`,
-    )
+    if (metrics.shards > 1) {
+      lines.push(
+        `Writes exceed any single box — shard Postgres by user id, ${metrics.shards} shards, ~${formatQpsShort(metrics.originWriteQps / metrics.shards)} writes/s each.`,
+      )
+    } else {
+      lines.push(
+        `${metrics.appN} app instances sit behind one load balancer. Plan for sharding the primary later; do not invent Kubernetes for this.`,
+      )
+    }
     if (flags.queue) {
       lines.push(
         `A queue sits in front of the heaviest writes (~${formatQpsShort(metrics.peakWriteQps)} QPS peak).`,
@@ -57,19 +69,12 @@ export function explainArchitecture(
     }
   }
 
-  if (input.instantConsistency) {
+  if (metrics.cdnOffloadUsed > 0) {
+    const pct = Math.round(metrics.cdnOffloadUsed * 100)
     lines.push(
-      `Instant consistency is on: user-facing reads go to the primary (write-through / tiny TTL cache). No async replica-reads, and a CDN is never the source of truth.`,
+      `CDN serves ~${pct}% of reads at the edge. Origin sees ~${formatQpsShort(metrics.originTotalQps)} rps, not the full ${peak}.`,
     )
-  } else if (metrics.replicas > 0) {
-    lines.push(
-      `${metrics.replicas} read replica${metrics.replicas === 1 ? '' : 's'} take leftover reads after a ${Math.round(metrics.cacheHitUsed * 100)}% cache hit (~${formatQpsShort(metrics.effectiveDbReads)} QPS still hits the database).`,
-    )
-  } else if (flags.allowReplicas && band !== 'hobby') {
-    lines.push(`The primary can absorb the leftover cache-miss reads, so no replicas yet.`)
-  }
-
-  if (flags.cdn && input.appShape !== 'crud') {
+  } else if (flags.cdn && input.appShape !== 'crud') {
     lines.push(
       `A CDN sits in front for static${input.appShape === 'content' ? ' and media' : ''} assets. It does not answer product reads.`,
     )
@@ -77,26 +82,61 @@ export function explainArchitecture(
     lines.push(`A CDN is in the picture for static assets at this scale.`)
   }
 
+  if (input.instantConsistency) {
+    lines.push(
+      metrics.shards > 1
+        ? `Instant consistency is on: user-facing reads go to the primary of each shard (write-through / tiny TTL cache). No async replica-reads, and a CDN is never the source of truth.`
+        : `Instant consistency is on: user-facing reads go to the primary (write-through / tiny TTL cache). No async replica-reads, and a CDN is never the source of truth.`,
+    )
+  } else if (metrics.replicas > 0) {
+    lines.push(
+      metrics.shards > 1
+        ? `${metrics.replicas} read replica${metrics.replicas === 1 ? '' : 's'} per shard take leftover reads after a ${Math.round(metrics.cacheHitUsed * 100)}% cache hit (~${formatQpsShort(metrics.effectiveDbReads)} QPS still hits the database).`
+        : `${metrics.replicas} read replica${metrics.replicas === 1 ? '' : 's'} take leftover reads after a ${Math.round(metrics.cacheHitUsed * 100)}% cache hit (~${formatQpsShort(metrics.effectiveDbReads)} QPS still hits the database).`,
+    )
+  } else if (flags.allowReplicas && band !== 'hobby') {
+    lines.push(
+      metrics.shards > 1
+        ? 'Primary budget per shard covers the leftover cache-miss reads, so no extra replicas.'
+        : 'The primary can absorb the leftover cache-miss reads, so no replicas yet.',
+    )
+  }
+
   if (flags.object) {
     lines.push(`Object storage holds media blobs so the database is not a file server.`)
   }
 
-  return lines.slice(0, 6)
+  return lines.slice(0, 7)
 }
 
-export function assumptionList(input: ArchitectureInput, flags: RecipeFlags): string[] {
+export function assumptionList(
+  input: ArchitectureInput,
+  flags: RecipeFlags,
+  metrics?: ArchitectureMetrics,
+): string[] {
+  const offloadPct = Math.round((metrics?.cdnOffloadUsed ?? (flags.cdn ? input.cdnOffload : 0)) * 100)
   const items = [
     `Peak = average × ${input.peakFactor}. Real peaks vary; this is a teaching knob.`,
-    `One app instance is assumed to hold ~${input.rpsPerInstance} rps before you add another.`,
+    `RPS per instance is the 4-vCPU baseline (~${input.rpsPerInstance} rps). Capacity scales with vCPU. Fleet target ${FLEET_TARGET} boxes.`,
     `Storage is ${formatBytes(input.bytesPerUser)} per user × 1.5 for indexes and overhead.`,
-    `Egress ≈ peak QPS × ${input.payloadKb} KB × 2.6e6 seconds/month.`,
+    `Egress ≈ average QPS × ${input.payloadKb} KB × 2.6e6 seconds/month, split into CDN vs origin.`,
     input.instantConsistency
       ? 'Cache hit rate is ignored for user-facing reads while instant consistency is on.'
-      : `Cache hit rate ${Math.round(input.cacheHitRate * 100)}% applies only to cacheable reads.`,
+      : `Cache hit rate ${Math.round(input.cacheHitRate * 100)}% applies only to cacheable origin reads.`,
+    `Cache nodes budget ~${CACHE_NODE_BUDGET_QPS.toLocaleString('en-US')} ops/s each. Read replicas cap at ${REPLICA_CAP} per primary/shard.`,
+    flags.cdn && offloadPct > 0
+      ? `CDN offload ${offloadPct}% of reads at the edge. Writes and the rest hit origin.`
+      : 'CDN offload is 0% unless the recipe adds a CDN and you raise the knob (content defaults to 65%).',
+    `DB math is per shard once writes (or storage, or replica fan-out) exceed one box.`,
     `Prices are rough 2026 USD/month ballparks, not a quote.`,
   ]
   if (flags.comboAppDb) {
     items.push('Hobby band colocates the app and the database on one VM.')
+  }
+  if (flags.pooler) {
+    items.push(
+      `PgBouncer appears once app instances × ~${APP_POOL_PER_INSTANCE} connections cross a few hundred.`,
+    )
   }
   if (input.provider === 'cheap') {
     items.push('Cheaper-managed flavor swaps RDS/ALB labels for PlanetScale / Fly-style prices.')

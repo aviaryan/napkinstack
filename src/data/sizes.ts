@@ -1,4 +1,4 @@
-import type { AppSize, Band, DbSize, RedisSize } from '../lib/types'
+import type { AppSize, AppSizeKey, Band, DbPlan, DbSize, RedisSize } from '../lib/types'
 
 export const BAND_CEILING = {
   hobby: 50,
@@ -15,16 +15,73 @@ export function pickBand(peakTotalQps: number): Band {
   return 'xlarge'
 }
 
-const APP_SIZES: Record<AppSize['key'], AppSize> = {
+/** Scale up so the fleet stays near this many boxes before the next bigger size. */
+export const FLEET_TARGET = 300
+export const APP_BASELINE_VCPU = 4
+export const REPLICA_CAP = 5
+export const CACHE_NODE_BUDGET_QPS = 90_000
+export const APP_POOL_PER_INSTANCE = 10
+export const POOLER_CONNECTION_TRIGGER = 200
+
+const APP_SIZES: Record<AppSizeKey, AppSize> = {
   small: { key: 'small', vcpu: 1, ramGb: 1, label: '1 vCPU · 1 GB' },
   medium: { key: 'medium', vcpu: 2, ramGb: 4, label: '2 vCPU · 4 GB' },
   large: { key: 'large', vcpu: 4, ramGb: 8, label: '4 vCPU · 8 GB' },
+  xlarge: { key: 'xlarge', vcpu: 8, ramGb: 16, label: '8 vCPU · 16 GB' },
+  '2xlarge': { key: '2xlarge', vcpu: 16, ramGb: 32, label: '16 vCPU · 32 GB' },
 }
 
-export function appSizeFor(band: Band): AppSize {
+const APP_LADDER: AppSize[] = [
+  APP_SIZES.small,
+  APP_SIZES.medium,
+  APP_SIZES.large,
+  APP_SIZES.xlarge,
+  APP_SIZES['2xlarge'],
+]
+
+export function floorAppSize(band: Band): AppSize {
   if (band === 'hobby') return APP_SIZES.small
   if (band === 'small' || band === 'medium') return APP_SIZES.medium
   return APP_SIZES.large
+}
+
+/** @deprecated use floorAppSize + pickAppFleet — kept for call sites that only need the band floor */
+export function appSizeFor(band: Band): AppSize {
+  return floorAppSize(band)
+}
+
+export function appCapacityRps(size: AppSize, rpsPerInstance: number): number {
+  return rpsPerInstance * (size.vcpu / APP_BASELINE_VCPU)
+}
+
+export function appCountFor(peakQps: number, capacityRps: number, spare: number, hobby: boolean): number {
+  if (hobby) return 1
+  return Math.max(2, Math.ceil(peakQps / Math.max(capacityRps, 1)) + spare)
+}
+
+/** Smallest size at-or-above the band floor whose fleet stays under FLEET_TARGET. */
+export function pickAppFleet(opts: {
+  band: Band
+  peakQps: number
+  rpsPerInstance: number
+  spare: number
+}): { size: AppSize; count: number; capacityRps: number } {
+  const { band, peakQps, rpsPerInstance, spare } = opts
+  const floor = floorAppSize(band)
+  const start = APP_LADDER.findIndex((s) => s.key === floor.key)
+  let chosen = APP_LADDER[start]
+  let count = appCountFor(peakQps, appCapacityRps(chosen, rpsPerInstance), spare, band === 'hobby')
+
+  for (let i = start; i < APP_LADDER.length; i++) {
+    const size = APP_LADDER[i]
+    const cap = appCapacityRps(size, rpsPerInstance)
+    const n = appCountFor(peakQps, cap, spare, band === 'hobby')
+    chosen = size
+    count = n
+    if (n <= FLEET_TARGET) break
+  }
+
+  return { size: chosen, count, capacityRps: appCapacityRps(chosen, rpsPerInstance) }
 }
 
 const DB_BY_CLASS: Record<string, DbSize> = {
@@ -34,6 +91,7 @@ const DB_BY_CLASS: Record<string, DbSize> = {
     primaryReadBudgetQps: 80,
     replicaQps: 80,
     writeBudgetQps: 40,
+    storageBudgetGb: 50,
   },
   'db.t3.medium': {
     class: 'db.t3.medium',
@@ -41,6 +99,7 @@ const DB_BY_CLASS: Record<string, DbSize> = {
     primaryReadBudgetQps: 250,
     replicaQps: 250,
     writeBudgetQps: 120,
+    storageBudgetGb: 200,
   },
   'db.r5.large': {
     class: 'db.r5.large',
@@ -48,6 +107,7 @@ const DB_BY_CLASS: Record<string, DbSize> = {
     primaryReadBudgetQps: 800,
     replicaQps: 700,
     writeBudgetQps: 400,
+    storageBudgetGb: 500,
   },
   'db.r5.xlarge': {
     class: 'db.r5.xlarge',
@@ -55,6 +115,7 @@ const DB_BY_CLASS: Record<string, DbSize> = {
     primaryReadBudgetQps: 2000,
     replicaQps: 1800,
     writeBudgetQps: 900,
+    storageBudgetGb: 2_000,
   },
   'db.r5.2xlarge': {
     class: 'db.r5.2xlarge',
@@ -62,17 +123,128 @@ const DB_BY_CLASS: Record<string, DbSize> = {
     primaryReadBudgetQps: 4000,
     replicaQps: 3500,
     writeBudgetQps: 1800,
+    storageBudgetGb: 4_000,
+  },
+  'db.r5.4xlarge': {
+    class: 'db.r5.4xlarge',
+    cheapClass: 'PS enterprise',
+    primaryReadBudgetQps: 8000,
+    replicaQps: 7000,
+    writeBudgetQps: 3500,
+    storageBudgetGb: 8_000,
+  },
+  'db.r5.8xlarge': {
+    class: 'db.r5.8xlarge',
+    cheapClass: 'PS enterprise+',
+    primaryReadBudgetQps: 15_000,
+    replicaQps: 13_000,
+    writeBudgetQps: 6500,
+    storageBudgetGb: 16_000,
+  },
+  'db.r5.16xlarge': {
+    class: 'db.r5.16xlarge',
+    cheapClass: 'PS enterprise max',
+    primaryReadBudgetQps: 28_000,
+    replicaQps: 24_000,
+    writeBudgetQps: 12_000,
+    storageBudgetGb: 32_000,
   },
 }
 
-const DB_LADDER = [
+export const DB_LADDER: DbSize[] = [
   DB_BY_CLASS['db.t3.micro'],
   DB_BY_CLASS['db.t3.medium'],
   DB_BY_CLASS['db.r5.large'],
   DB_BY_CLASS['db.r5.xlarge'],
   DB_BY_CLASS['db.r5.2xlarge'],
+  DB_BY_CLASS['db.r5.4xlarge'],
+  DB_BY_CLASS['db.r5.8xlarge'],
+  DB_BY_CLASS['db.r5.16xlarge'],
 ]
 
+export const TOP_DB = DB_LADDER[DB_LADDER.length - 1]
+
+function bandMinDb(band: Band): DbSize {
+  if (band === 'hobby') return DB_BY_CLASS['db.t3.micro']
+  if (band === 'small') return DB_BY_CLASS['db.t3.medium']
+  if (band === 'medium') return DB_BY_CLASS['db.r5.large']
+  if (band === 'large') return DB_BY_CLASS['db.r5.xlarge']
+  return DB_BY_CLASS['db.r5.2xlarge']
+}
+
+function rungFits(size: DbSize, writeQps: number, storageGb: number, readQps: number, instant: boolean): boolean {
+  const storageOk = storageGb <= size.storageBudgetGb
+  const writeOk = writeQps <= size.writeBudgetQps * 1.2
+  const readOk = !instant || readQps <= size.primaryReadBudgetQps * 1.4
+  return storageOk && writeOk && readOk
+}
+
+function climbLadder(opts: {
+  band: Band
+  writeQps: number
+  storageGb: number
+  readQps: number
+  instantConsistency: boolean
+}): DbSize {
+  const minClass = bandMinDb(opts.band)
+  const start = DB_LADDER.findIndex((d) => d.class === minClass.class)
+  for (let i = start; i < DB_LADDER.length; i++) {
+    if (rungFits(DB_LADDER[i], opts.writeQps, opts.storageGb, opts.readQps, opts.instantConsistency)) {
+      return DB_LADDER[i]
+    }
+  }
+  return TOP_DB
+}
+
+function readCapWithReplicas(size: DbSize): number {
+  return size.primaryReadBudgetQps + REPLICA_CAP * size.replicaQps
+}
+
+export function dbPlanFor(opts: {
+  band: Band
+  storageGb: number
+  peakWriteQps: number
+  dbReadQps: number
+  instantConsistency: boolean
+  allowReplicas: boolean
+}): DbPlan {
+  const { band, storageGb, peakWriteQps, dbReadQps, instantConsistency, allowReplicas } = opts
+
+  let shards = 1
+  if (peakWriteQps > TOP_DB.writeBudgetQps * 1.2) {
+    shards = Math.ceil(peakWriteQps / TOP_DB.writeBudgetQps)
+  }
+  if (storageGb > TOP_DB.storageBudgetGb) {
+    shards = Math.max(shards, Math.ceil(storageGb / TOP_DB.storageBudgetGb))
+  }
+  if (instantConsistency && dbReadQps > TOP_DB.primaryReadBudgetQps * 1.4) {
+    shards = Math.max(shards, Math.ceil(dbReadQps / TOP_DB.primaryReadBudgetQps))
+  }
+  if (allowReplicas && !instantConsistency && dbReadQps > readCapWithReplicas(TOP_DB)) {
+    shards = Math.max(shards, Math.ceil(dbReadQps / readCapWithReplicas(TOP_DB)))
+  }
+
+  const perWrite = peakWriteQps / shards
+  const perStorage = storageGb / shards
+  const perRead = dbReadQps / shards
+  const size = climbLadder({
+    band,
+    writeQps: perWrite,
+    storageGb: perStorage,
+    readQps: perRead,
+    instantConsistency,
+  })
+
+  let replicas = 0
+  if (allowReplicas && !instantConsistency) {
+    replicas = Math.max(0, Math.ceil((perRead - size.primaryReadBudgetQps) / size.replicaQps))
+    replicas = Math.min(REPLICA_CAP, replicas)
+  }
+
+  return { size, shards, replicas }
+}
+
+/** Size only — used by older call sites. Prefer dbPlanFor. */
 export function dbSizeFor(opts: {
   band: Band
   storageGb: number
@@ -80,32 +252,21 @@ export function dbSizeFor(opts: {
   primaryReadQps: number
   instantConsistency: boolean
 }): DbSize {
-  const { band, storageGb, peakWriteQps, primaryReadQps, instantConsistency } = opts
-
-  let minClass: DbSize
-  if (band === 'hobby') minClass = DB_BY_CLASS['db.t3.micro']
-  else if (band === 'small') minClass = DB_BY_CLASS['db.t3.medium']
-  else if (band === 'medium') minClass = DB_BY_CLASS['db.r5.large']
-  else if (band === 'large') minClass = DB_BY_CLASS['db.r5.xlarge']
-  else minClass = DB_BY_CLASS['db.r5.2xlarge']
-
-  const start = DB_LADDER.findIndex((d) => d.class === minClass.class)
-  for (let i = start; i < DB_LADDER.length; i++) {
-    const size = DB_LADDER[i]
-    const storageOk = storageGb < 400 || i >= 2
-    const writeOk = peakWriteQps <= size.writeBudgetQps * 1.2
-    const readOk = !instantConsistency || primaryReadQps <= size.primaryReadBudgetQps * 1.4
-    if (storageOk && writeOk && readOk) return size
-  }
-  return DB_LADDER[DB_LADDER.length - 1]
+  return dbPlanFor({
+    ...opts,
+    dbReadQps: opts.primaryReadQps,
+    allowReplicas: !opts.instantConsistency,
+  }).size
 }
 
-export function redisSizeFor(band: Band, clustered: boolean): RedisSize {
+export function redisSizeFor(band: Band, clustered: boolean, cacheHitQps = 0): RedisSize {
   if (clustered || band === 'large' || band === 'xlarge') {
+    const nodes = Math.max(3, Math.ceil(Math.max(cacheHitQps, 1) / CACHE_NODE_BUDGET_QPS))
     return {
-      class: 'cache.r6g.large ×3',
-      cheapClass: 'Upstash Pro cluster',
+      class: `cache.r6g.large ×${nodes}`,
+      cheapClass: `Upstash Pro ×${nodes}`,
       clustered: true,
+      nodes,
     }
   }
   if (band === 'medium') {
@@ -113,12 +274,14 @@ export function redisSizeFor(band: Band, clustered: boolean): RedisSize {
       class: 'cache.t3.medium',
       cheapClass: 'Upstash Pay-as-you-go',
       clustered: false,
+      nodes: 1,
     }
   }
   return {
     class: 'cache.t3.micro',
     cheapClass: 'Upstash Free/fixed',
     clustered: false,
+    nodes: 1,
   }
 }
 

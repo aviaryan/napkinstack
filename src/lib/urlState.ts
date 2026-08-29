@@ -1,3 +1,4 @@
+import { CDN_OFFLOAD } from '../data/recipes'
 import { DEFAULT_INPUT, USERS_MAX, USERS_MIN, clamp } from './defaults'
 import { themeToSearchParam, type Theme } from './theme'
 import type { AppShape, ArchitectureInput, Provider } from './types'
@@ -23,13 +24,15 @@ export function parseInputFromSearch(search: string): ArchitectureInput {
   const shape = q.get('s')
   const provider = q.get('f')
   const cachePct = num(q.get('c'), DEFAULT_INPUT.cacheHitRate * 100, 0, 100)
+  const appShape = SHAPES.includes(shape as AppShape) ? (shape as AppShape) : DEFAULT_INPUT.appShape
+  const offloadDefault = CDN_OFFLOAD[appShape] * 100
 
   return {
     users: Math.round(num(q.get('u'), DEFAULT_INPUT.users, USERS_MIN, USERS_MAX)),
     readsPerUserDay: num(q.get('r'), DEFAULT_INPUT.readsPerUserDay, 0, 1_000_000),
     writesPerUserDay: num(q.get('w'), DEFAULT_INPUT.writesPerUserDay, 0, 1_000_000),
     instantConsistency: bool(q.get('i'), DEFAULT_INPUT.instantConsistency),
-    appShape: SHAPES.includes(shape as AppShape) ? (shape as AppShape) : DEFAULT_INPUT.appShape,
+    appShape,
     peakFactor: num(q.get('p'), DEFAULT_INPUT.peakFactor, 1, 50),
     payloadKb: num(q.get('k'), DEFAULT_INPUT.payloadKb, 0.1, 10_000),
     cacheHitRate: cachePct / 100,
@@ -37,6 +40,7 @@ export function parseInputFromSearch(search: string): ArchitectureInput {
     bytesPerUser: num(q.get('d'), DEFAULT_INPUT.bytesPerUser / 1000, 0.1, 1_000_000) * 1000,
     spare: Math.round(num(q.get('n'), DEFAULT_INPUT.spare, 0, 50)),
     provider: PROVIDERS.includes(provider as Provider) ? (provider as Provider) : DEFAULT_INPUT.provider,
+    cdnOffload: num(q.get('o'), offloadDefault, 0, 95) / 100,
   }
 }
 
@@ -54,6 +58,7 @@ export function inputToSearch(input: ArchitectureInput): string {
   q.set('d', String(input.bytesPerUser / 1000))
   q.set('n', String(input.spare))
   q.set('f', input.provider)
+  q.set('o', String(Math.round(input.cdnOffload * 100)))
   return q.toString()
 }
 

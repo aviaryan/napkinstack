@@ -16,6 +16,7 @@ export const DEFAULT_INPUT: ArchitectureInput = {
   bytesPerUser: 50_000,
   spare: 2,
   provider: 'aws',
+  cdnOffload: 0,
 }
 
 export function clamp(n: number, min: number, max: number): number {

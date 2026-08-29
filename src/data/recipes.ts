@@ -3,6 +3,13 @@ import type { AppShape, Band, RecipeFlags } from '../lib/types'
 export const READ_WRITE_CACHE_RATIO = 8
 export const QUEUE_WRITE_QPS = 400
 
+/** Default share of *read* traffic a CDN absorbs at the edge. CRUD APIs are not edge-cacheable. */
+export const CDN_OFFLOAD: Record<AppShape, number> = {
+  content: 0.65,
+  mixed: 0.35,
+  crud: 0,
+}
+
 export function recipeFor(opts: {
   band: Band
   appShape: AppShape

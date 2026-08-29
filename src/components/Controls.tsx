@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { matchingPresetId, PRESETS } from '../data/presets'
+import { CDN_OFFLOAD } from '../data/recipes'
 import { DEFAULT_INPUT, USERS_MAX, USERS_MIN, sliderToUsers, usersToSlider } from '../lib/defaults'
 import { formatUsers } from '../lib/format'
 import type { ArchitectureInput, ArchitectureResult, Provider } from '../lib/types'
@@ -145,17 +146,17 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
           <div className="grid grid-cols-3 border border-ink">
             <ShapeButton
               active={input.appShape === 'crud'}
-              onClick={() => set('appShape', 'crud')}
+              onClick={() => onChange({ ...input, appShape: 'crud', cdnOffload: CDN_OFFLOAD.crud })}
               label="CRUD API"
             />
             <ShapeButton
               active={input.appShape === 'content'}
-              onClick={() => set('appShape', 'content')}
+              onClick={() => onChange({ ...input, appShape: 'content', cdnOffload: CDN_OFFLOAD.content })}
               label="Content"
             />
             <ShapeButton
               active={input.appShape === 'mixed'}
-              onClick={() => set('appShape', 'mixed')}
+              onClick={() => onChange({ ...input, appShape: 'mixed', cdnOffload: CDN_OFFLOAD.mixed })}
               label="Mixed"
             />
           </div>
@@ -208,12 +209,41 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
             ) : null}
           </label>
           <NumberField
-            label="RPS per app instance"
+            label="RPS per app instance (4 vCPU baseline)"
             value={input.rpsPerInstance}
             min={1}
             max={50_000}
             onChange={(v) => set('rpsPerInstance', v)}
           />
+          <label>
+            <span className="mb-1 block font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
+              CDN offload %
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={90}
+                value={Math.round(input.cdnOffload * 100)}
+                aria-label="CDN offload percent"
+                onChange={(e) => set('cdnOffload', Number(e.target.value) / 100)}
+                className="sketch-range min-w-0 flex-1"
+                style={{ '--slider-pct': `${Math.round(input.cdnOffload * 100)}%` } as CSSProperties}
+              />
+              <input
+                type="number"
+                min={0}
+                max={90}
+                aria-label="CDN offload percent"
+                value={Math.round(input.cdnOffload * 100)}
+                onChange={(e) => set('cdnOffload', clampInt(e.target.value, 0, 90, 0) / 100)}
+                className="w-16 border border-ink/30 bg-sheet px-2 py-1 text-right font-mono text-sm"
+              />
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Share of reads the edge serves. Content defaults to 65%; CRUD stays at 0.
+            </p>
+          </label>
           <NumberField
             label="Data stored per user (KB)"
             value={input.bytesPerUser / 1000}

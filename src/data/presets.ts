@@ -1,3 +1,4 @@
+import { CDN_OFFLOAD } from './recipes'
 import { DEFAULT_INPUT } from '../lib/defaults'
 import type { ArchitectureInput } from '../lib/types'
 
@@ -26,6 +27,7 @@ export const PRESETS: Preset[] = [
       bytesPerUser: 20_000,
       spare: 0,
       provider: 'cheap',
+      cdnOffload: CDN_OFFLOAD.crud,
     },
   },
   {
@@ -45,6 +47,7 @@ export const PRESETS: Preset[] = [
       bytesPerUser: 30_000,
       spare: 2,
       provider: 'aws',
+      cdnOffload: CDN_OFFLOAD.content,
     },
   },
   {
@@ -64,6 +67,7 @@ export const PRESETS: Preset[] = [
       bytesPerUser: 50_000,
       spare: 2,
       provider: 'aws',
+      cdnOffload: CDN_OFFLOAD.mixed,
     },
   },
   {
@@ -84,6 +88,7 @@ export const PRESETS: Preset[] = [
       bytesPerUser: 80_000,
       spare: 4,
       provider: 'aws',
+      cdnOffload: CDN_OFFLOAD.content,
     },
   },
 ]

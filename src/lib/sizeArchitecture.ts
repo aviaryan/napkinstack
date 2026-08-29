@@ -1,16 +1,25 @@
 import {
   COST_HIGH_FACTOR,
   COST_LOW_FACTOR,
+  LB_SCALE_QPS,
   PRICE_AS_OF,
+  SECONDS_PER_MONTH,
+  lbMonthly,
   postgresMonthly,
   pricesFor,
+  queueMonthly,
   redisMonthly,
   vmMonthly,
 } from '../data/prices'
 import { QUEUE_WRITE_QPS, READ_WRITE_CACHE_RATIO, recipeFor } from '../data/recipes'
 import {
-  appSizeFor,
-  dbSizeFor,
+  APP_POOL_PER_INSTANCE,
+  FLEET_TARGET,
+  POOLER_CONNECTION_TRIGGER,
+  REPLICA_CAP,
+  TOP_DB,
+  dbPlanFor,
+  pickAppFleet,
   pickBand,
   redisSizeFor,
   storageWithHeadroomGb,
@@ -18,12 +27,14 @@ import {
 import { assumptionList, explainArchitecture } from './explain'
 import { formatGb, formatNumber, formatQpsShort } from './format'
 import type {
+  AppSizeKey,
   ArchEdge,
   ArchNode,
   ArchitectureInput,
   ArchitectureResult,
   Band,
   CostItem,
+  DbPlan,
   MathLine,
   RecipeFlags,
 } from './types'
@@ -36,12 +47,12 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
   const peakReadQps = avgReadQps * input.peakFactor
   const peakWriteQps = avgWriteQps * input.peakFactor
   const peakTotalQps = peakReadQps + peakWriteQps
-  const storageGb = (input.users * input.bytesPerUser) / 1e9 * 1.5
+  const storageGb = ((input.users * input.bytesPerUser) / 1e9) * 1.5
 
   const band = pickBand(peakTotalQps)
   const readWriteRatio =
     input.writesPerUserDay <= 0 ? Infinity : input.readsPerUserDay / input.writesPerUserDay
-  const flags = recipeFor({
+  const baseFlags = recipeFor({
     band,
     appShape: input.appShape,
     readWriteRatio,
@@ -49,33 +60,45 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     instantConsistency: input.instantConsistency,
   })
 
-  let appN = Math.max(1, Math.ceil(peakTotalQps / input.rpsPerInstance) + input.spare)
-  if (band !== 'hobby') {
-    appN = Math.max(appN, 2)
-  }
-  if (band === 'hobby') {
-    appN = 1
+  const cdnOffloadUsed = baseFlags.cdn ? clamp01(input.cdnOffload) : 0
+  const originReadQps = peakReadQps * (1 - cdnOffloadUsed)
+  const originWriteQps = peakWriteQps
+  const originTotalQps = originReadQps + originWriteQps
+
+  const fleet = pickAppFleet({
+    band,
+    peakQps: originTotalQps,
+    rpsPerInstance: input.rpsPerInstance,
+    spare: input.spare,
+  })
+  const appN = fleet.count
+  const app = fleet.size
+
+  const flags: RecipeFlags = {
+    ...baseFlags,
+    pooler:
+      baseFlags.pooler ||
+      (!baseFlags.comboAppDb && appN * APP_POOL_PER_INSTANCE >= POOLER_CONNECTION_TRIGGER),
   }
 
   const cacheHitUsed = input.instantConsistency || !flags.cache ? 0 : input.cacheHitRate
-  const effectiveDbReads = peakReadQps * (1 - cacheHitUsed)
+  const cacheHitQps = originReadQps * cacheHitUsed
+  const effectiveDbReads = originReadQps * (1 - cacheHitUsed)
 
-  const primaryReadForSizing = input.instantConsistency ? peakReadQps : Math.min(effectiveDbReads, peakReadQps)
-  const db = dbSizeFor({
+  const dbReadForPlan = input.instantConsistency ? originReadQps : effectiveDbReads
+  const plan = dbPlanFor({
     band,
     storageGb,
-    peakWriteQps,
-    primaryReadQps: primaryReadForSizing,
+    peakWriteQps: originWriteQps,
+    dbReadQps: dbReadForPlan,
     instantConsistency: input.instantConsistency,
+    allowReplicas: flags.allowReplicas,
   })
+  const db = plan.size
+  const shards = plan.shards
+  const replicas = plan.replicas
 
-  let replicas = 0
-  if (!input.instantConsistency && flags.allowReplicas) {
-    replicas = Math.max(0, Math.ceil((effectiveDbReads - db.primaryReadBudgetQps) / db.replicaQps))
-  }
-
-  const app = appSizeFor(band)
-  const redis = flags.cache ? redisSizeFor(band, flags.cacheCluster) : null
+  const redis = flags.cache ? redisSizeFor(band, flags.cacheCluster, cacheHitQps) : null
   const diskGb = storageWithHeadroomGb(storageGb)
 
   const { nodes, edges } = buildGraph({
@@ -84,16 +107,19 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     band,
     appN,
     appLabel: app.label,
-    db,
+    appCapacityRps: fleet.capacityRps,
+    db: plan,
     redisClass: input.provider === 'cheap' ? redis?.cheapClass : redis?.class,
     redisClustered: Boolean(redis?.clustered),
+    redisNodes: redis?.nodes ?? 0,
     diskGb,
-    peakReadQps,
     peakWriteQps,
     peakTotalQps,
+    originReadQps,
+    originTotalQps,
     effectiveDbReads,
     cacheHitUsed,
-    replicas,
+    cdnOffloadUsed,
   })
 
   const cost = estimateCost({
@@ -104,8 +130,13 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     dbClass: db.class,
     diskGb,
     replicas,
+    shards,
     redisClustered: Boolean(redis?.clustered),
-    peakTotalQps,
+    redisNodes: redis?.nodes ?? 1,
+    originTotalQps,
+    avgReadQps,
+    avgWriteQps,
+    cdnOffloadUsed,
   })
   attachCosts(nodes, cost.items)
 
@@ -115,14 +146,21 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     peakReadQps,
     peakWriteQps,
     peakTotalQps,
+    originReadQps,
+    originWriteQps,
+    originTotalQps,
     storageGb,
     appN,
+    appCapacityRps: fleet.capacityRps,
     replicas,
+    shards,
+    cacheNodes: redis?.nodes ?? 0,
     effectiveDbReads,
     cacheHitUsed,
+    cdnOffloadUsed,
   }
 
-  const math = buildMath(input, metrics, db, flags)
+  const math = buildMath(input, metrics, plan, flags, app.vcpu)
 
   return {
     band,
@@ -132,18 +170,20 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     explanation: explainArchitecture(input, band, flags, metrics),
     math,
     metrics,
-    assumptions: assumptionList(input, flags),
+    assumptions: assumptionList(input, flags, metrics),
   }
 }
 
 function buildMath(
   input: ArchitectureInput,
   metrics: ArchitectureResult['metrics'],
-  db: ReturnType<typeof dbSizeFor>,
+  plan: DbPlan,
   flags: RecipeFlags,
+  appVcpu: number,
 ): MathLine[] {
   const u = input.users.toLocaleString('en-US')
-  return [
+  const db = plan.size
+  const lines: MathLine[] = [
     {
       label: 'avg_read_qps',
       formula: `${u} × ${input.readsPerUserDay} / 86400`,
@@ -170,45 +210,76 @@ function buildMath(
       value: formatNumber(metrics.peakTotalQps, 2),
     },
     {
+      label: 'cdn_offload',
+      formula: flags.cdn
+        ? `${formatNumber(metrics.peakReadQps, 1)} × (1 − ${metrics.cdnOffloadUsed}) reads + writes → origin`
+        : 'no CDN → origin sees full peak',
+      value: formatNumber(metrics.originTotalQps, 2),
+    },
+    {
       label: 'storage_gb',
       formula: `${u} × ${input.bytesPerUser} / 1e9 × 1.5`,
       value: formatNumber(metrics.storageGb, 2),
     },
     {
+      label: 'app_size',
+      formula:
+        appVcpu > 4
+          ? `${appVcpu} vCPU so the fleet stays under ${FLEET_TARGET} boxes (capacity = ${input.rpsPerInstance} × ${appVcpu}/4)`
+          : `band floor · ${appVcpu} vCPU (capacity = ${input.rpsPerInstance} × ${appVcpu}/4)`,
+      value: `${appVcpu} vCPU`,
+    },
+    {
       label: 'app_n',
       formula:
         metrics.appN === 1 && flags.comboAppDb
-          ? `hobby band → 1 box (ceil(${formatNumber(metrics.peakTotalQps, 1)} / ${input.rpsPerInstance}) + ${input.spare} unused)`
-          : `max(1, ceil(${formatNumber(metrics.peakTotalQps, 1)} / ${input.rpsPerInstance}) + ${input.spare})${flags.comboAppDb ? '' : ', min 2 if not hobby'}`,
+          ? `hobby band → 1 box (ceil(${formatNumber(metrics.originTotalQps, 1)} / ${formatNumber(metrics.appCapacityRps, 0)}) + ${input.spare} unused)`
+          : `max(2, ceil(${formatNumber(metrics.originTotalQps, 1)} / ${formatNumber(metrics.appCapacityRps, 0)}) + ${input.spare})`,
       value: String(metrics.appN),
     },
     {
       label: 'effective_db_reads',
       formula: input.instantConsistency
-        ? `${formatNumber(metrics.peakReadQps, 1)} × (1 − 0)  // cache ignored`
-        : `${formatNumber(metrics.peakReadQps, 1)} × (1 − ${metrics.cacheHitUsed})`,
+        ? `${formatNumber(metrics.originReadQps, 1)} × (1 − 0)  // cache ignored`
+        : `${formatNumber(metrics.originReadQps, 1)} × (1 − ${metrics.cacheHitUsed})`,
       value: formatNumber(metrics.effectiveDbReads, 2),
+    },
+    {
+      label: 'db_shards',
+      formula:
+        plan.shards > 1
+          ? `ceil(${formatNumber(metrics.originWriteQps, 0)} writes / ${TOP_DB.writeBudgetQps} top-rung write budget)`
+          : '1 — writes still fit on one primary',
+      value: String(plan.shards),
     },
     {
       label: 'replicas',
       formula: input.instantConsistency
         ? 'instant consistency → 0'
-        : `max(0, ceil((${formatNumber(metrics.effectiveDbReads, 1)} − ${db.primaryReadBudgetQps}) / ${db.replicaQps}))`,
-      value: String(metrics.replicas),
+        : plan.shards > 1
+          ? `per shard: min(${REPLICA_CAP}, max(0, ceil((${formatNumber(metrics.effectiveDbReads / plan.shards, 1)} − ${db.primaryReadBudgetQps}) / ${db.replicaQps})))`
+          : `max(0, ceil((${formatNumber(metrics.effectiveDbReads, 1)} − ${db.primaryReadBudgetQps}) / ${db.replicaQps}))`,
+      value: plan.shards > 1 ? `${metrics.replicas} / shard` : String(metrics.replicas),
     },
   ]
+  return lines
 }
 
 function estimateCost(opts: {
   input: ArchitectureInput
   flags: RecipeFlags
   appN: number
-  appKey: 'small' | 'medium' | 'large'
+  appKey: AppSizeKey
   dbClass: string
   diskGb: number
   replicas: number
+  shards: number
   redisClustered: boolean
-  peakTotalQps: number
+  redisNodes: number
+  originTotalQps: number
+  avgReadQps: number
+  avgWriteQps: number
+  cdnOffloadUsed: number
 }) {
   const table = pricesFor(opts.input.provider)
   const items: CostItem[] = []
@@ -220,16 +291,25 @@ function estimateCost(opts: {
   })
 
   if (opts.flags.lb) {
+    const lb = lbMonthly(table, opts.originTotalQps)
+    const scaled = opts.originTotalQps > LB_SCALE_QPS
     items.push({
-      name: opts.input.provider === 'cheap' ? 'Fly / edge proxy' : 'ALB',
-      monthly: table.lb,
+      name:
+        opts.input.provider === 'cheap'
+          ? scaled
+            ? 'Fly / edge proxy (scaled)'
+            : 'Fly / edge proxy'
+          : scaled
+            ? 'ALB (scaled)'
+            : 'ALB',
+      monthly: lb,
     })
   }
 
   if (!opts.flags.comboAppDb) {
     items.push({
       name: opts.input.provider === 'cheap' ? 'PlanetScale-ish' : 'Postgres (RDS-ish)',
-      monthly: postgresMonthly(table, opts.dbClass, opts.diskGb, opts.replicas),
+      monthly: postgresMonthly(table, opts.dbClass, opts.diskGb, opts.replicas, opts.shards),
     })
   } else {
     items.push({
@@ -239,20 +319,27 @@ function estimateCost(opts: {
   }
 
   if (opts.flags.cache) {
-    const redisKey = opts.redisClustered ? 'cluster' : opts.flags.cacheCluster ? 'cluster' : opts.appKey === 'small' ? 'micro' : 'medium'
+    const redisKey = opts.appKey === 'small' ? 'micro' : 'medium'
     items.push({
-      name: opts.redisClustered ? 'Redis cluster' : 'Redis',
-      monthly: redisMonthly(table, opts.redisClustered, redisKey === 'cluster' ? 'cluster' : redisKey === 'micro' ? 'micro' : 'medium'),
+      name: opts.redisClustered ? `Redis cluster ×${opts.redisNodes}` : 'Redis',
+      monthly: redisMonthly(table, opts.redisClustered, redisKey, opts.redisNodes),
     })
   }
 
   if (opts.flags.queue) {
-    items.push({ name: opts.input.provider === 'cheap' ? 'Managed queue' : 'SQS-ish', monthly: table.queue })
+    items.push({
+      name: opts.input.provider === 'cheap' ? 'Managed queue' : 'SQS-ish',
+      monthly: queueMonthly(table, opts.avgWriteQps),
+    })
   }
 
   const payloadBytes = opts.input.payloadKb * 1024
-  const egressGb = (opts.peakTotalQps * payloadBytes * 2.6e6) / 1e9
-  const objectGb = opts.flags.object ? Math.max(opts.diskGb, egressGb * 0.15) : 0
+  const avgTotalQps = opts.avgReadQps + opts.avgWriteQps
+  const offloadedAvg = opts.avgReadQps * opts.cdnOffloadUsed
+  const originAvg = avgTotalQps - offloadedAvg
+  const cdnEgressGb = (offloadedAvg * payloadBytes * SECONDS_PER_MONTH) / 1e9
+  const originEgressGb = (originAvg * payloadBytes * SECONDS_PER_MONTH) / 1e9
+  const objectGb = opts.flags.object ? Math.max(opts.diskGb, (cdnEgressGb + originEgressGb) * 0.15) : 0
 
   if (opts.flags.object) {
     items.push({
@@ -264,13 +351,13 @@ function estimateCost(opts: {
   if (opts.flags.cdn) {
     items.push({
       name: opts.input.provider === 'cheap' ? 'CDN' : 'CloudFront-ish',
-      monthly: table.cdnBase + egressGb * 0.4 * table.cdnPerGb,
+      monthly: table.cdnBase + cdnEgressGb * table.cdnPerGb,
     })
   }
 
   items.push({
     name: 'Egress (guess)',
-    monthly: egressGb * table.egressPerGb,
+    monthly: originEgressGb * table.egressPerGb,
   })
 
   if (opts.flags.pooler) {
@@ -302,7 +389,7 @@ function matchesCost(node: ArchNode, name: string): boolean {
     case 'app':
       return name.startsWith('App VMs')
     case 'lb':
-      return name === 'ALB' || name.includes('proxy')
+      return name.startsWith('ALB') || name.includes('proxy')
     case 'primary':
       return name.includes('Postgres') || name.includes('PlanetScale')
     case 'replica':
@@ -332,22 +419,30 @@ function clampUtil(n: number): number {
   return Math.min(1, n)
 }
 
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0
+  return Math.min(0.95, Math.max(0, n))
+}
+
 function buildGraph(opts: {
   input: ArchitectureInput
   flags: RecipeFlags
   band: Band
   appN: number
   appLabel: string
-  db: ReturnType<typeof dbSizeFor>
+  appCapacityRps: number
+  db: DbPlan
   redisClass?: string
   redisClustered: boolean
+  redisNodes: number
   diskGb: number
-  peakReadQps: number
   peakWriteQps: number
   peakTotalQps: number
+  originReadQps: number
+  originTotalQps: number
   effectiveDbReads: number
   cacheHitUsed: number
-  replicas: number
+  cdnOffloadUsed: number
 }): { nodes: ArchNode[]; edges: ArchEdge[] } {
   const {
     input,
@@ -355,17 +450,23 @@ function buildGraph(opts: {
     band,
     appN,
     appLabel,
-    db,
+    appCapacityRps,
+    db: plan,
     redisClass,
     redisClustered,
+    redisNodes,
     diskGb,
-    peakReadQps,
     peakWriteQps,
     peakTotalQps,
+    originReadQps,
+    originTotalQps,
     effectiveDbReads,
     cacheHitUsed,
-    replicas,
+    cdnOffloadUsed,
   } = opts
+  const db = plan.size
+  const shards = plan.shards
+  const replicas = plan.replicas
 
   const dbTitle = input.provider === 'cheap' ? db.cheapClass : db.class
   const pgName = input.provider === 'cheap' ? 'PlanetScale' : 'Postgres'
@@ -392,7 +493,7 @@ function buildGraph(opts: {
       label: 'App + Postgres',
       detail: `${appLabel} · ${formatGb(diskGb)}`,
       why: 'Hobby band: one VM runs the app and the database. No load balancer.',
-      utilization: clampUtil(peakTotalQps / Math.max(input.rpsPerInstance, 1)),
+      utilization: clampUtil(originTotalQps / Math.max(appCapacityRps, 1)),
     })
     edges.push({
       id: 'e-client-combo',
@@ -408,13 +509,17 @@ function buildGraph(opts: {
   let prev = 'client'
 
   if (flags.cdn) {
+    const pct = Math.round(cdnOffloadUsed * 100)
     nodes.push({
       id: 'cdn',
       kind: 'cdn',
       label: cdnName,
-      detail: 'static assets',
-      why: 'CDN for static assets only — never the source of truth for product reads.',
-      appearNote: '+ CDN — static assets at this scale',
+      detail: pct > 0 ? `serves ${pct}% at edge` : 'static assets',
+      why:
+        pct > 0
+          ? `CDN absorbs ${pct}% of reads at the edge so origin never sees them. Writes and cache-miss / API traffic still go through.`
+          : 'CDN for static assets only — never the source of truth for product reads.',
+      appearNote: '+ CDN — edge offload at this scale',
     })
     edges.push({
       id: 'e-client-cdn',
@@ -439,17 +544,17 @@ function buildGraph(opts: {
       id: 'e-prev-lb',
       source: prev,
       target: 'lb',
-      label: flags.cdn ? 'origin / API' : rpsLabel(peakTotalQps),
+      label: flags.cdn ? rpsLabel(originTotalQps, 'to origin') : rpsLabel(peakTotalQps),
       role: 'mixed',
-      qps: peakTotalQps,
+      qps: originTotalQps,
     })
     prev = 'lb'
   }
 
   const readsOnPrimary = input.instantConsistency
-    ? peakReadQps
-    : Math.min(effectiveDbReads, db.primaryReadBudgetQps)
-  const replicaReads = replicas > 0 ? Math.max(0, effectiveDbReads - db.primaryReadBudgetQps) : 0
+    ? originReadQps
+    : Math.min(effectiveDbReads, db.primaryReadBudgetQps * shards)
+  const replicaReads = replicas > 0 ? Math.max(0, effectiveDbReads - db.primaryReadBudgetQps * shards) : 0
   const dbTraffic = readsOnPrimary + peakWriteQps
 
   nodes.push({
@@ -459,18 +564,18 @@ function buildGraph(opts: {
     detail: appLabel,
     count: appN,
     stack: appN > 1,
-    why: `ceil(${formatQpsShort(peakTotalQps)} rps / ${input.rpsPerInstance}) + ${input.spare} spare${
+    why: `ceil(${formatQpsShort(originTotalQps)} origin rps / ${formatQpsShort(appCapacityRps)}) + ${input.spare} spare${
       band === 'hobby' ? '' : ', min 2 for HA'
-    }.`,
-    utilization: clampUtil(peakTotalQps / Math.max(appN * input.rpsPerInstance, 1)),
+    }. Bigger boxes when the fleet would pass ${FLEET_TARGET}.`,
+    utilization: clampUtil(originTotalQps / Math.max(appN * appCapacityRps, 1)),
   })
   edges.push({
     id: 'e-prev-app',
     source: prev,
     target: 'app',
-    label: rpsLabel(peakTotalQps),
+    label: rpsLabel(originTotalQps),
     role: 'mixed',
-    qps: peakTotalQps,
+    qps: originTotalQps,
   })
 
   if (flags.cache && redisClass) {
@@ -479,14 +584,16 @@ function buildGraph(opts: {
       kind: 'cache',
       label: flags.cacheCluster ? 'Redis cluster' : 'Redis',
       detail: redisClass,
-      count: redisClustered ? 3 : 1,
+      count: redisClustered ? redisNodes : 1,
       stack: redisClustered,
       why: input.instantConsistency
         ? 'Write-through / tiny TTL — present, but not a stale-read shortcut.'
-        : 'Cacheable reads stop here so Postgres never sees them.',
+        : redisClustered
+          ? `Cacheable reads stop here. Cluster grows with hit QPS (~90k ops/node).`
+          : 'Cacheable reads stop here so Postgres never sees them.',
       appearNote: '+ Redis — cacheable reads leave the database path',
     })
-    const cacheRps = peakReadQps * cacheHitUsed
+    const cacheRps = originReadQps * cacheHitUsed
     edges.push({
       id: 'e-app-cache',
       source: 'app',
@@ -503,8 +610,8 @@ function buildGraph(opts: {
       kind: 'pooler',
       label: 'PgBouncer',
       detail: 'connection pool',
-      why: 'xlarge: multiplex app connections so Postgres is not drowned in clients.',
-      appearNote: '+ PgBouncer — connection pooling at xlarge',
+      why: `${appN} app boxes × ~${APP_POOL_PER_INSTANCE} conns would drown Postgres. Multiplex through a pooler.`,
+      appearNote: '+ PgBouncer — connection pooling',
     })
     edges.push({
       id: 'e-app-pooler',
@@ -517,16 +624,26 @@ function buildGraph(opts: {
   }
 
   const dbParent = flags.pooler ? 'pooler' : 'app'
+  const perShardWrite = peakWriteQps / shards
   nodes.push({
     id: 'primary',
     kind: 'primary',
-    label: `${pgName} primary`,
+    label: shards > 1 ? `${pgName} × ${shards} (sharded)` : `${pgName} primary`,
     detail: `${dbTitle} · ${formatGb(diskGb)}`,
-    why: input.instantConsistency
-      ? 'Source of truth. Instant consistency means user-facing reads hit the primary.'
-      : 'Source of truth for writes, plus whatever cache-miss reads fit its budget.',
+    count: shards,
+    stack: shards > 1,
+    why:
+      shards > 1
+        ? `Writes exceed any single box — shard by user id, ~${formatQpsShort(perShardWrite)} writes/s per shard.`
+        : input.instantConsistency
+          ? 'Source of truth. Instant consistency means user-facing reads hit the primary.'
+          : 'Source of truth for writes, plus whatever cache-miss reads fit its budget.',
+    appearNote: shards > 1 ? `+ ${shards} shards — writes outgrew one primary` : undefined,
     utilization: clampUtil(
-      Math.max(readsOnPrimary / Math.max(db.primaryReadBudgetQps, 1), peakWriteQps / Math.max(db.writeBudgetQps, 1)),
+      Math.max(
+        readsOnPrimary / shards / Math.max(db.primaryReadBudgetQps, 1),
+        perShardWrite / Math.max(db.writeBudgetQps, 1),
+      ),
     ),
   })
   edges.push({
@@ -542,13 +659,21 @@ function buildGraph(opts: {
     nodes.push({
       id: 'replica',
       kind: 'replica',
-      label: replicas === 1 ? 'Read replica' : `Read replicas × ${replicas}`,
+      label:
+        shards > 1
+          ? `+${replicas} replica${replicas === 1 ? '' : 's'} per shard`
+          : replicas === 1
+            ? 'Read replica'
+            : `Read replicas × ${replicas}`,
       detail: `${dbTitle} · reads`,
-      count: replicas,
-      stack: replicas > 1,
-      why: 'Serves leftover cache-miss reads the primary cannot. Async — stale vs primary.',
+      count: shards > 1 ? replicas * shards : replicas,
+      stack: replicas > 1 || shards > 1,
+      why:
+        shards > 1
+          ? `Leftover cache-miss reads, capped at ${REPLICA_CAP} replicas per shard (WAL fan-out).`
+          : 'Serves leftover cache-miss reads the primary cannot. Async — stale vs primary.',
       appearNote: '+ replica — leftover reads overflowed the primary',
-      utilization: clampUtil(replicaReads / Math.max(replicas * db.replicaQps, 1)),
+      utilization: clampUtil(replicaReads / Math.max(replicas * shards * db.replicaQps, 1)),
     })
     edges.push({
       id: 'e-app-replica',
@@ -605,22 +730,21 @@ function buildGraph(opts: {
     })
   }
 
-  nodes.push(...ghostNodes(opts))
+  nodes.push(...ghostNodes({ input, flags, band, db, shards, peakWriteQps, effectiveDbReads, replicas }))
   return { nodes, edges }
 }
 
-function ghostNodes(
-  opts: {
-    input: ArchitectureInput
-    flags: RecipeFlags
-    band: Band
-    db: ReturnType<typeof dbSizeFor>
-    peakWriteQps: number
-    effectiveDbReads: number
-    replicas: number
-  },
-): ArchNode[] {
-  const { input, flags, band, db, peakWriteQps, effectiveDbReads, replicas } = opts
+function ghostNodes(opts: {
+  input: ArchitectureInput
+  flags: RecipeFlags
+  band: Band
+  db: DbPlan['size']
+  shards: number
+  peakWriteQps: number
+  effectiveDbReads: number
+  replicas: number
+}): ArchNode[] {
+  const { input, flags, band, db, shards, peakWriteQps, effectiveDbReads, replicas } = opts
   if (flags.comboAppDb) return []
 
   const ghosts: ArchNode[] = []
@@ -637,11 +761,15 @@ function ghostNodes(
       label: 'Read replica',
       detail: input.instantConsistency
         ? 'not yet · instant consistency'
-        : `not yet · primary ${formatQpsShort(db.primaryReadBudgetQps)} rps > ${formatQpsShort(effectiveDbReads)} miss rps`,
+        : shards > 1
+          ? `not yet · ${shards} shards × ${formatQpsShort(db.primaryReadBudgetQps)} rps cover misses`
+          : `not yet · primary ${formatQpsShort(db.primaryReadBudgetQps)} rps > ${formatQpsShort(effectiveDbReads)} miss rps`,
       ghost: true,
       why: input.instantConsistency
         ? 'Instant consistency forbids serving user-facing reads from a lagging replica.'
-        : 'The primary still has read budget left, so a replica would be idle.',
+        : shards > 1
+          ? 'Primary budget per shard covers cache-miss reads, so extra replicas would sit idle.'
+          : 'The primary still has read budget left, so a replica would be idle.',
     })
   }
 
