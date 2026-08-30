@@ -6,10 +6,18 @@
     </pattern>
   </defs>
   <rect width="1200" height="630" fill="url(#grid)"/>
-  <text x="48" y="64" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="16" letter-spacing="4">ARCHSKETCH · FIELD NOTES</text>
-  <text x="48" y="132" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="56" font-weight="700">Drag a slider.</text>
-  <text x="48" y="196" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="56" font-weight="700">Watch the bill grow.</text>
-  <text x="48" y="248" fill="#8aa0b8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22">A back-of-the-envelope architecture sketch. Not capacity planning.</text>
+
+  <!-- napkin mark -->
+  <g transform="translate(48,36) scale(1.6)">
+    <path d="M5 8h16l6 6v10H5Z" fill="#16283f" stroke="#e8f1fb" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M21 8v6h6" fill="#f5c518" stroke="#e8f1fb" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M8.5 20h4.5v-4h5v-4h5" stroke="#7fb4ff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="106" y="68" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="16" letter-spacing="4">NAPKINSTACK Â· FIELD NOTES</text>
+
+  <text x="48" y="152" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="56" font-weight="700">Drag a slider.</text>
+  <text x="48" y="216" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="56" font-weight="700">Watch the bill grow.</text>
+  <text x="48" y="268" fill="#8aa0b8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22">Napkin math for scaling. A sketch, not capacity planning.</text>
 
   <rect x="720" y="80" width="160" height="70" fill="#16283f" stroke="#e8f1fb" stroke-width="2"/>
   <text x="736" y="104" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="11" letter-spacing="2">EDGE</text>
@@ -22,7 +30,7 @@
   <rect x="830" y="220" width="160" height="70" fill="#16283f" stroke="#e8f1fb" stroke-width="2"/>
   <rect x="976" y="226" width="8" height="16" fill="#f5c518"/>
   <text x="846" y="244" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="11" letter-spacing="2">COMPUTE</text>
-  <text x="846" y="270" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="700">App × 24</text>
+  <text x="846" y="270" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="700">App Ã— 24</text>
 
   <rect x="720" y="370" width="160" height="70" fill="#16283f" stroke="#e8f1fb" stroke-width="2"/>
   <text x="736" y="394" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="11" letter-spacing="2">CACHE</text>
@@ -38,10 +46,10 @@
   <path d="M990 290V370" stroke="#7fb4ff" stroke-width="2.5"/>
 
   <rect x="48" y="470" width="420" height="110" fill="#122238" stroke="#e8f1fb" stroke-width="2"/>
-  <text x="68" y="504" fill="#8aa0b8" font-family="ui-monospace, monospace" font-size="13" letter-spacing="3">MONTHLY · ROUGH</text>
-  <text x="68" y="554" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="44" font-weight="700">$3,822$8,190</text>
-  <rect x="400" y="486" width="52" height="22" fill="#e07a1a"/>
-  <text x="408" y="502" fill="#fff8ee" font-family="ui-monospace, monospace" font-size="11">LARGE</text>
+  <text x="72" y="504" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="13" letter-spacing="3">MONTHLY Â· ROUGH</text>
+  <text x="72" y="552" fill="#e8f1fb" font-family="ui-sans-serif, system-ui, sans-serif" font-size="40" font-weight="700">$5,460 / mo</text>
 
-  <text x="48" y="612" fill="#7fb4ff" font-family="ui-monospace, monospace" font-size="14" letter-spacing="2">1M USERS · BAND LARGE · PAPER / BLUEPRINT</text>
+  <rect x="520" y="470" width="212" height="42" fill="#f5c518"/>
+  <text x="540" y="497" fill="#3a2c00" font-family="ui-monospace, monospace" font-size="18" font-weight="700" letter-spacing="3">BAND LARGE</text>
+  <text x="520" y="560" fill="#8aa0b8" font-family="ui-monospace, monospace" font-size="16">no backend Â· works offline Â· MIT</text>
 </svg>

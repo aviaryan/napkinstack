@@ -11,27 +11,29 @@
               ? 'blueprint'
               : q === 'paper'
                 ? 'paper'
-                : localStorage.getItem('archsketch-theme')
+                : localStorage.getItem('napkinstack-theme') || localStorage.getItem('archsketch-theme')
           if (t === 'blueprint') document.documentElement.setAttribute('data-theme', 'blueprint')
         } catch (e) {}
       })()
     </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
       content="Drag a slider, watch the architecture and the AWS bill grow. A back-of-the-envelope sketch — not capacity planning."
     />
-    <meta property="og:title" content="ArchSketch" />
+    <meta property="og:title" content="NapkinStack — napkin math for scaling" />
     <meta
       property="og:description"
       content="Drag a slider, watch the architecture and the AWS bill grow."
     />
-    <meta property="og:image" content="/og.svg" />
+    <meta property="og:url" content="https://aviaryan.github.io/napkinstack/" />
+    <meta property="og:image" content="https://aviaryan.github.io/napkinstack/og.png" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="/og.svg" />
-    <title>ArchSketch</title>
+    <meta name="twitter:image" content="https://aviaryan.github.io/napkinstack/og.png" />
+    <title>NapkinStack — drag a slider, watch the AWS bill grow</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

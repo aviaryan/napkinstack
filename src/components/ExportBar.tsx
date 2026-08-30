@@ -30,7 +30,7 @@ export function ExportBar({ result }: { result: ArchitectureResult }) {
           disabled={exporting}
           onClick={() => {
             setExporting(true)
-            void downloadDiagramPng(`archsketch-${result.band}.png`)
+            void downloadDiagramPng(`napkinstack-${result.band}.png`)
               .then(() => flash('PNG downloaded'))
               .catch(() => flash('Could not render PNG'))
               .finally(() => setExporting(false))

@@ -1,4 +1,4 @@
-# ArchSketch
+# NapkinStack
 
 Static teaching tool: capacity inputs → architecture diagram + rough monthly cost. No backend, no LLM, no APIs on input change. Fully client-side.
 

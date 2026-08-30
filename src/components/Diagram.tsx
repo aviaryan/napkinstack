@@ -145,7 +145,7 @@ function SheetStamp({
   return (
     <div className="pointer-events-none absolute right-2 bottom-2 z-10 hidden border border-ink/25 bg-sheet/90 px-2 py-1.5 sm:block">
       <p className="text-right font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
-        ArchSketch · {formatUsers(users)} users · band {result.band} · {formatUsd(result.cost.point)}/mo
+        NapkinStack · {formatUsers(users)} users · band {result.band} · {formatUsd(result.cost.point)}/mo
       </p>
       <ul className="mt-1.5 flex justify-end gap-3 font-mono text-[9px] tracking-wide text-ink uppercase">
         <li className="flex items-center gap-1.5">

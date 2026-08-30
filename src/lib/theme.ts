@@ -1,6 +1,7 @@
 export type Theme = 'paper' | 'blueprint'
 
-const STORAGE_KEY = 'archsketch-theme'
+const STORAGE_KEY = 'napkinstack-theme'
+const LEGACY_STORAGE_KEY = 'archsketch-theme'
 
 export function parseThemeFromSearch(search: string): Theme | null {
   const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
@@ -12,7 +13,7 @@ export function parseThemeFromSearch(search: string): Theme | null {
 
 export function readStoredTheme(): Theme | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (raw === 'blueprint' || raw === 'paper') return raw
   } catch {
     /* private mode */

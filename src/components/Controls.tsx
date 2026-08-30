@@ -30,7 +30,7 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
       <header className="flex items-start justify-between gap-3">
         <div>
           <p className="font-mono text-[10px] font-medium tracking-[0.22em] text-ballpoint uppercase">Field notes</p>
-          <h1 className="font-display text-3xl leading-none font-bold tracking-tight">ArchSketch</h1>
+          <h1 className="font-display text-3xl leading-none font-bold tracking-tight">NapkinStack</h1>
         </div>
         <button
           type="button"
