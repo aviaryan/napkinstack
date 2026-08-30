@@ -409,9 +409,8 @@ function matchesCost(node: ArchNode, name: string): boolean {
   }
 }
 
-function rpsLabel(qps: number, suffix = ''): string {
-  const core = `~${formatQpsShort(qps)} rps`
-  return suffix ? `${core} ${suffix}` : core
+function rpsLabel(qps: number): string {
+  return `~${formatQpsShort(qps)} rps`
 }
 
 function clampUtil(n: number): number {
@@ -544,7 +543,7 @@ function buildGraph(opts: {
       id: 'e-prev-lb',
       source: prev,
       target: 'lb',
-      label: flags.cdn ? rpsLabel(originTotalQps, 'to origin') : rpsLabel(peakTotalQps),
+      label: flags.cdn ? rpsLabel(originTotalQps) : rpsLabel(peakTotalQps),
       role: 'mixed',
       qps: originTotalQps,
     })
@@ -598,7 +597,7 @@ function buildGraph(opts: {
       id: 'e-app-cache',
       source: 'app',
       target: 'cache',
-      label: cacheHitUsed > 0 ? rpsLabel(cacheRps, 'hits') : 'write-through',
+      label: cacheHitUsed > 0 ? rpsLabel(cacheRps) : 'write-thru',
       role: cacheHitUsed > 0 ? 'read' : 'write',
       qps: cacheHitUsed > 0 ? cacheRps : peakWriteQps,
     })
@@ -679,7 +678,7 @@ function buildGraph(opts: {
       id: 'e-app-replica',
       source: dbParent,
       target: 'replica',
-      label: rpsLabel(replicaReads, 'reads'),
+      label: rpsLabel(replicaReads),
       role: 'read',
       qps: replicaReads,
     })
@@ -687,7 +686,7 @@ function buildGraph(opts: {
       id: 'e-repl-stream',
       source: 'primary',
       target: 'replica',
-      label: 'replication (async)',
+      label: 'replication',
       role: 'replication',
     })
   }
@@ -705,7 +704,7 @@ function buildGraph(opts: {
       id: 'e-app-queue',
       source: 'app',
       target: 'queue',
-      label: rpsLabel(peakWriteQps, 'writes'),
+      label: rpsLabel(peakWriteQps),
       role: 'async',
       qps: peakWriteQps,
     })

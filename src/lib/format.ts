@@ -11,11 +11,14 @@ export function formatQps(n: number): string {
 export function formatQpsShort(n: number): string {
   if (!Number.isFinite(n)) return '—'
   const abs = Math.abs(n)
-  if (abs >= 10_000) return Math.round(n).toLocaleString('en-US')
+  if (abs >= 1_000_000) {
+    const m = n / 1_000_000
+    return m >= 10 || Number.isInteger(m) ? `${Math.round(m)}M` : `${parseFloat(m.toFixed(1))}M`
+  }
+  if (abs >= 10_000) return `${Math.round(n / 1000)}k`
   if (abs >= 100) return String(Math.round(n))
   if (abs >= 10) return n.toFixed(1)
-  if (abs >= 1) return n.toFixed(2)
-  return n.toFixed(3)
+  return n.toFixed(2)
 }
 
 export function formatUsers(n: number): string {

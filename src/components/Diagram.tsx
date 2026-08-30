@@ -11,17 +11,19 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { edgeColors, isDashed, sheetFill, strokeWidthFor } from '../lib/diagramStyle'
+import { edgeColors, edgeLabelKind, isDashed, strokeWidthFor } from '../lib/diagramStyle'
 import { formatUsd, formatUsers } from '../lib/format'
 import { NODE_H, NODE_W, positionNodes, tierBands } from '../lib/layout'
 import { marginNote } from '../lib/marginNote'
 import type { Theme } from '../lib/theme'
 import type { ArchNode, ArchitectureResult } from '../lib/types'
 import { CostDock } from './CostPanel'
+import { SketchEdge } from './SketchEdge'
 import { SketchNode } from './SketchNode'
 
 const nodeTypes = { sketch: SketchNode, tier: TierBandNode }
-const FIT_PAD = { top: 0.1, right: 0.08, bottom: 0.22, left: 0.06 }
+const edgeTypes = { sketch: SketchEdge }
+const FIT_PAD = { top: 0.1, right: 0.08, bottom: 0.3, left: 0.06 }
 
 interface DiagramProps {
   result: ArchitectureResult
@@ -101,6 +103,7 @@ export function Diagram({ result, theme, users }: DiagramProps) {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           fitView
           fitViewOptions={{ padding: FIT_PAD, minZoom: 0.2, maxZoom: 1.35 }}
           minZoom={0.18}
@@ -209,12 +212,10 @@ function toFlowNodes(
 
 function toFlowEdges(result: ArchitectureResult, theme: Theme): Edge[] {
   const colors = edgeColors(theme)
-  const bg = sheetFill(theme)
   return result.edges.map((edge) => {
     const color = colors[edge.role]
     const width = strokeWidthFor(edge.qps)
     const dashed = isDashed(edge.role)
-    const branch = edge.role === 'async' || edge.role === 'read' || edge.role === 'replication'
     const replication = edge.role === 'replication'
     return {
       id: edge.id,
@@ -222,8 +223,7 @@ function toFlowEdges(result: ArchitectureResult, theme: Theme): Edge[] {
       target: edge.target,
       sourceHandle: replication ? 'south' : undefined,
       targetHandle: replication ? 'north' : undefined,
-      label: edge.label,
-      type: 'smoothstep',
+      type: 'sketch',
       animated: false,
       className: edge.role === 'async' ? 'edge-async' : undefined,
       style: {
@@ -231,10 +231,11 @@ function toFlowEdges(result: ArchitectureResult, theme: Theme): Edge[] {
         strokeWidth: width,
         strokeDasharray: dashed ? '5 4' : undefined,
       },
-      labelStyle: { fill: color, fontFamily: 'Red Hat Mono, monospace', fontSize: 10, fontWeight: 500 },
-      labelBgStyle: { fill: bg, fillOpacity: 1 },
-      labelBgPadding: [4, 2] as [number, number],
-      labelPosition: branch ? 0.38 : 0.5,
+      data: {
+        label: edge.label,
+        color,
+        kind: edgeLabelKind(edge.target, edge.role),
+      },
       markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
     }
   })
