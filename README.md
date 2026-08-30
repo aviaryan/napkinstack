@@ -8,13 +8,13 @@
 
 Napkin math for scaling, drawn as a live diagram with the formulas left showing.
 
-[![Live demo](https://img.shields.io/badge/demo-napkinstack-f5c518?style=flat-square)](https://aviaryan.github.io/napkinstack/)
+[![Live demo](https://img.shields.io/badge/demo-Napkin--Stack-f5c518?style=flat-square)](https://aviaryan.github.io/Napkin-Stack/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-1d4ed8?style=flat-square)](LICENSE)
 ![No backend](https://img.shields.io/badge/backend-none%20·%20works%20offline-1c1a12?style=flat-square)
 
 <img src="docs/assets/demo.gif" width="900" alt="Dragging the users slider from 400 users to 80 million: boxes sprout, the band heats up, the bill grows" />
 
-### [▶ Try it: napkinstack](https://aviaryan.github.io/napkinstack/)
+### [▶ Try it: NapkinStack](https://aviaryan.github.io/Napkin-Stack/)
 
 </div>
 
@@ -53,10 +53,10 @@ can read in [`src/data/`](src/data/).
 
 | Scenario | What happens | Rough bill |
 |---|---|---|
-| [Side project](https://aviaryan.github.io/napkinstack/?u=400&r=20&w=4&i=0&s=crud&p=3&k=4&c=70&q=200&d=20&n=0&f=cheap&o=0) | One box. You are the failover plan. | **$7/mo** |
-| [HN launch](https://aviaryan.github.io/napkinstack/?u=40000&r=40&w=6&i=0&s=content&p=15&k=8&c=85&q=200&d=30&n=2&f=aws&o=65) | Front page, 15× peak, and the CDN starts earning its keep. | **$440/mo** |
-| [Series A](https://aviaryan.github.io/napkinstack/?u=1500000&r=50&w=10&i=0&s=mixed&p=6&k=5&c=80&q=200&d=50&n=2&f=aws&o=35) | Real traffic, still a monolith. Twenty-five of them. | **$4,057/mo** |
-| [IG-scale](https://aviaryan.github.io/napkinstack/?u=80000000&r=120&w=12&i=0&s=content&p=8&k=6&c=90&q=250&d=80&n=4&f=aws&o=65) | ~1M peak QPS, sharded Postgres, 404 app boxes, and still nothing exotic. | **$353,582/mo** |
+| [Side project](https://aviaryan.github.io/Napkin-Stack/?u=400&r=20&w=4&i=0&s=crud&p=3&k=4&c=70&q=200&d=20&n=0&f=cheap&o=0) | One box. You are the failover plan. | **$7/mo** |
+| [HN launch](https://aviaryan.github.io/Napkin-Stack/?u=40000&r=40&w=6&i=0&s=content&p=15&k=8&c=85&q=200&d=30&n=2&f=aws&o=65) | Front page, 15× peak, and the CDN starts earning its keep. | **$440/mo** |
+| [Series A](https://aviaryan.github.io/Napkin-Stack/?u=1500000&r=50&w=10&i=0&s=mixed&p=6&k=5&c=80&q=200&d=50&n=2&f=aws&o=35) | Real traffic, still a monolith. Twenty-five of them. | **$4,057/mo** |
+| [IG-scale](https://aviaryan.github.io/Napkin-Stack/?u=80000000&r=120&w=12&i=0&s=content&p=8&k=6&c=90&q=250&d=80&n=4&f=aws&o=65) | ~1M peak QPS, sharded Postgres, 404 app boxes, and still nothing exotic. | **$353,582/mo** |
 
 Adding your own scale is a one-file PR to
 [`src/data/presets.ts`](src/data/presets.ts).
