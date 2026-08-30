@@ -25,7 +25,7 @@ export function explainArchitecture(
       `Peak load is only ~${peak} QPS (about ${avg} average), so this still fits on one machine.`,
     )
     lines.push(
-      `Run the app and Postgres (or SQLite) on a single VM. There is no load balancer — you are the failover plan.`,
+      `Run the app and Postgres (or SQLite) on a single VM. There is no load balancer, so you are the failover plan.`,
     )
   } else if (band === 'small') {
     lines.push(
@@ -36,7 +36,7 @@ export function explainArchitecture(
         `Reads outpace writes by more than 8×, so a small cache is worth standing up even at this size.`,
       )
     } else {
-      lines.push(`No cache yet — the read/write mix is not cache-heavy enough to bother.`)
+      lines.push(`No cache yet. The read/write mix is not cache-heavy enough to bother.`)
     }
   } else if (band === 'medium') {
     lines.push(
@@ -53,11 +53,11 @@ export function explainArchitecture(
     }
   } else {
     lines.push(
-      `~${peak} peak QPS is still a boring monolith — just a large one. Scale up before out: we grow instance size before the fleet passes ~${FLEET_TARGET} boxes.`,
+      `~${peak} peak QPS is still a monolith, just a large one. Scale up before out: we grow instance size before the fleet passes ~${FLEET_TARGET} boxes.`,
     )
     if (metrics.shards > 1) {
       lines.push(
-        `Writes exceed any single box — shard Postgres by user id, ${metrics.shards} shards, ~${formatQpsShort(metrics.originWriteQps / metrics.shards)} writes/s each.`,
+        `Writes exceed any single box, so shard Postgres by user id: ${metrics.shards} shards, ~${formatQpsShort(metrics.originWriteQps / metrics.shards)} writes/s each.`,
       )
     } else {
       lines.push(

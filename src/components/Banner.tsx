@@ -4,7 +4,7 @@ export function Banner({ theme, onTheme }: { theme: Theme; onTheme: (theme: Them
   return (
     <div className="flex items-center justify-between gap-3 border-b border-ink/20 bg-[var(--color-banner)] px-3 py-1.5 text-[var(--color-banner-ink)] sm:px-4">
       <p className="min-w-0 flex-1 text-center font-mono text-[11px] leading-relaxed tracking-wide sm:text-xs">
-        Back-of-the-envelope. Assumptions are editable. Not capacity planning.
+        Back-of-the-envelope math with editable assumptions. Not a capacity plan.
       </p>
       <div className="flex shrink-0 items-center gap-0.5 font-mono text-[10px] tracking-[0.14em] uppercase">
         <button

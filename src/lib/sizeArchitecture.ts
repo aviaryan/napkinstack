@@ -254,7 +254,7 @@ function buildMath(
       formula:
         plan.shards > 1
           ? `ceil(${formatNumber(metrics.originWriteQps, 0)} writes / ${TOP_DB.writeBudgetQps} top-rung write budget)`
-          : '1 — writes still fit on one primary',
+          : '1 (writes still fit on one primary)',
       value: String(plan.shards),
     },
     {
@@ -524,8 +524,8 @@ function buildGraph(opts: {
       why:
         pct > 0
           ? `CDN absorbs ${pct}% of reads at the edge so origin never sees them. Writes and cache-miss / API traffic still go through.`
-          : 'CDN for static assets only — never the source of truth for product reads.',
-      appearNote: '+ CDN — edge offload at this scale',
+          : 'CDN for static assets only. It is never the source of truth for product reads.',
+      appearNote: '+ CDN for edge offload at this scale',
     })
     edges.push({
       id: 'e-client-cdn',
@@ -572,7 +572,7 @@ function buildGraph(opts: {
     stack: appN > 1,
     why: `ceil(${formatQpsShort(originTotalQps)} origin rps / ${formatQpsShort(appCapacityRps)}) + ${input.spare} spare${
       band === 'hobby' ? '' : ', min 2 for HA'
-    }. Scale up before out: past ~${FLEET_TARGET} boxes we take the next instance size — fewer deploys, fewer DB connections, less LB churn. Capacity is CPU-driven; RAM rides along at 1:2.`,
+    }. Scale up before out: past ~${FLEET_TARGET} boxes we take the next instance size, which means fewer deploys, fewer DB connections, and less LB churn. Capacity is CPU-driven; RAM rides along at 1:2.`,
     utilization: clampUtil(originTotalQps / Math.max(appN * appCapacityRps, 1)),
   })
   edges.push({
@@ -593,11 +593,11 @@ function buildGraph(opts: {
       count: redisClustered ? redisNodes : 1,
       stack: redisClustered,
       why: input.instantConsistency
-        ? 'Write-through / tiny TTL — present, but not a stale-read shortcut.'
+        ? 'Write-through with a tiny TTL. It is here, but not as a stale-read shortcut.'
         : redisClustered
           ? `Cacheable reads stop here. Cluster grows with hit QPS (~90k ops/node).`
           : 'Cacheable reads stop here so Postgres never sees them.',
-      appearNote: '+ Redis — cacheable reads leave the database path',
+      appearNote: '+ Redis, cacheable reads leave the database path',
     })
     const cacheRps = originReadQps * cacheHitUsed
     edges.push({
@@ -617,7 +617,7 @@ function buildGraph(opts: {
       label: 'PgBouncer',
       detail: 'connection pool',
       why: `${appN} app boxes × ~${appPool} conns would drown Postgres. Multiplex through a pooler.`,
-      appearNote: '+ PgBouncer — connection pooling',
+      appearNote: '+ PgBouncer for connection pooling',
     })
     edges.push({
       id: 'e-app-pooler',
@@ -640,11 +640,11 @@ function buildGraph(opts: {
     stack: shards > 1,
     why:
       shards > 1
-        ? `Writes exceed any single box — shard by user id, ~${formatQpsShort(perShardWrite)} writes/s per shard.`
+        ? `Writes exceed any single box, so shard by user id at ~${formatQpsShort(perShardWrite)} writes/s per shard.`
         : input.instantConsistency
           ? 'Source of truth. Instant consistency means user-facing reads hit the primary.'
           : 'Source of truth for writes, plus whatever cache-miss reads fit its budget.',
-    appearNote: shards > 1 ? `+ ${shards} shards — writes outgrew one primary` : undefined,
+    appearNote: shards > 1 ? `+ ${shards} shards, writes outgrew one primary` : undefined,
     utilization: clampUtil(
       Math.max(
         readsOnPrimary / shards / Math.max(db.primaryReadBudgetQps, 1),
@@ -677,8 +677,8 @@ function buildGraph(opts: {
       why:
         shards > 1
           ? `Leftover cache-miss reads, capped at ${REPLICA_CAP} replicas per shard (WAL fan-out).`
-          : 'Serves leftover cache-miss reads the primary cannot. Async — stale vs primary.',
-      appearNote: '+ replica — leftover reads overflowed the primary',
+          : 'Serves leftover cache-miss reads the primary cannot. Async, so it lags the primary.',
+      appearNote: '+ replica, leftover reads overflowed the primary',
       utilization: clampUtil(replicaReads / Math.max(replicas * shards * db.replicaQps, 1)),
     })
     edges.push({
@@ -704,8 +704,8 @@ function buildGraph(opts: {
       kind: 'queue',
       label: queueName,
       detail: 'async writes',
-      why: `Peak writes ${formatQpsShort(peakWriteQps)} rps crossed ${QUEUE_WRITE_QPS} — leave the request path.`,
-      appearNote: `+ queue — writes crossed ${QUEUE_WRITE_QPS} rps`,
+      why: `Peak writes ${formatQpsShort(peakWriteQps)} rps crossed ${QUEUE_WRITE_QPS}, so they leave the request path.`,
+      appearNote: `+ queue, writes crossed ${QUEUE_WRITE_QPS} rps`,
     })
     edges.push({
       id: 'e-app-queue',
@@ -724,7 +724,7 @@ function buildGraph(opts: {
       label: objectName,
       detail: 'media / blobs',
       why: 'Blobs stay out of Postgres. The database is not a file server.',
-      appearNote: '+ object store — media blobs',
+      appearNote: '+ object store for media blobs',
     })
     edges.push({
       id: 'e-app-object',

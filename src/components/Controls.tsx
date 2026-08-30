@@ -33,7 +33,7 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
       </header>
 
       <p className="max-w-prose text-sm leading-relaxed text-muted">
-        Drag the knobs. The diagram is a recipe, not a profiler — every number is a transparent guess.
+        Drag the knobs. The diagram follows a recipe you can read, and every number in it is a guess.
       </p>
 
       <ExportBar result={result} input={input} onReset={onReset} />
