@@ -1,7 +1,9 @@
 import {
+  APP_BASELINE_VCPU,
   APP_POOL_PER_INSTANCE,
   CACHE_NODE_BUDGET_QPS,
   FLEET_TARGET,
+  POOLER_CONNECTION_TRIGGER,
   REPLICA_CAP,
 } from '../data/sizes'
 import type { ArchitectureInput, ArchitectureMetrics, Band, RecipeFlags } from './types'
@@ -51,7 +53,7 @@ export function explainArchitecture(
     }
   } else {
     lines.push(
-      `~${peak} peak QPS is still a boring monolith — just a large one. Scale up before out: bigger boxes keep the fleet under ${FLEET_TARGET}.`,
+      `~${peak} peak QPS is still a boring monolith — just a large one. Scale up before out: we grow instance size before the fleet passes ~${FLEET_TARGET} boxes.`,
     )
     if (metrics.shards > 1) {
       lines.push(
@@ -117,7 +119,7 @@ export function assumptionList(
   const offloadPct = Math.round((metrics?.cdnOffloadUsed ?? (flags.cdn ? input.cdnOffload : 0)) * 100)
   const items = [
     `Peak = average × ${input.peakFactor}. Real peaks vary; this is a teaching knob.`,
-    `RPS per instance is the 4-vCPU baseline (~${input.rpsPerInstance} rps). Capacity scales with vCPU. Fleet target ${FLEET_TARGET} boxes.`,
+    `RPS per instance is the 4-vCPU baseline (~${input.rpsPerInstance} rps). Capacity scales with vCPU; RAM follows at 1:2. Scale up before the fleet passes ${FLEET_TARGET} boxes.`,
     `Storage is ${formatBytes(input.bytesPerUser)} per user × 1.5 for indexes and overhead.`,
     `Egress ≈ average QPS × ${input.payloadKb} KB × 2.6e6 seconds/month, split into CDN vs origin.`,
     input.instantConsistency
@@ -135,7 +137,7 @@ export function assumptionList(
   }
   if (flags.pooler) {
     items.push(
-      `PgBouncer appears once app instances × ~${APP_POOL_PER_INSTANCE} connections cross a few hundred.`,
+      `PgBouncer appears once fleet DB connections (about ${APP_POOL_PER_INSTANCE} per ${APP_BASELINE_VCPU} vCPU) cross ~${POOLER_CONNECTION_TRIGGER}.`,
     )
   }
   if (input.provider === 'cheap') {

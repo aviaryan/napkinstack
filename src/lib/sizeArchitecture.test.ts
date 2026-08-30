@@ -110,6 +110,32 @@ describe('app instances and HA', () => {
     expect(result.metrics.appN).toBe(6)
     expect(result.metrics.appCapacityRps).toBe(100)
   })
+
+  it('scales up to mid-size boxes instead of 15 tiny ones around 1,258 rps', () => {
+    const result = sizeArchitecture(
+      input({
+        users: 310_456,
+        readsPerUserDay: 50,
+        writesPerUserDay: 20,
+        peakFactor: 5,
+        appShape: 'crud',
+        rpsPerInstance: 200,
+        spare: 2,
+        cdnOffload: 0,
+      }),
+    )
+    expect(result.band).toBe('medium')
+    expect(result.metrics.appN).toBe(9)
+    expect(result.metrics.appCapacityRps).toBe(200)
+    const app = result.nodes.find((n) => n.kind === 'app')
+    expect(app?.label).toBe('App × 9')
+    expect(app?.detail).toMatch(/4 vCPU · 8 GB/)
+    expect(app?.detail).toMatch(/~200 rps each/)
+    expect(app?.utilization).toBeGreaterThan(0.65)
+    expect(app?.utilization).toBeLessThan(0.75)
+    expect(result.math.find((line) => line.label === 'app_size')?.formula).toMatch(/under 12 boxes/)
+    expect(app?.why).not.toMatch(/300/)
+  })
 })
 
 describe('scale up, shards, offload', () => {
@@ -296,6 +322,13 @@ describe('recipe flags', () => {
     const result = sizeArchitecture(atPeakQps(12_000))
     expect(result.band).toBe('xlarge')
     expect(result.nodes.some((n) => n.kind === 'pooler' && !n.ghost)).toBe(true)
+  })
+
+  it('adds PgBouncer on large once big-box pools cross the trigger', () => {
+    const result = sizeArchitecture(atPeakQps(5000, { spare: 2, rpsPerInstance: 200 }))
+    expect(result.band).toBe('large')
+    expect(result.nodes.some((n) => n.kind === 'pooler' && !n.ghost)).toBe(true)
+    expect(result.nodes.find((n) => n.kind === 'pooler')?.why).toMatch(/× ~40 conns/)
   })
 
   it('CDN for content/media, not as source of truth when instant is on', () => {

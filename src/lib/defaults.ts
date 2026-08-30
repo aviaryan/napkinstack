@@ -32,3 +32,11 @@ export function sliderToUsers(t: number): number {
   const users = USERS_MIN * (USERS_MAX / USERS_MIN) ** clamp(t, 0, 1)
   return Math.round(users)
 }
+
+export function sameInput(a: ArchitectureInput, b: ArchitectureInput): boolean {
+  return (Object.keys(a) as (keyof ArchitectureInput)[]).every((key) => a[key] === b[key])
+}
+
+export function isDefaultInput(input: ArchitectureInput): boolean {
+  return sameInput(input, DEFAULT_INPUT)
+}

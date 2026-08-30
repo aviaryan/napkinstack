@@ -11,12 +11,14 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { changeNotes, diffLiveNodes } from '../lib/diffNodes'
 import { edgeColors, edgeLabelKind, isDashed, strokeWidthFor } from '../lib/diagramStyle'
 import { formatUsd, formatUsers } from '../lib/format'
 import { NODE_H, NODE_W, positionNodes, tierBands } from '../lib/layout'
 import { marginNote } from '../lib/marginNote'
 import type { Theme } from '../lib/theme'
 import type { ArchNode, ArchitectureResult } from '../lib/types'
+import { ChangeLedger, FLASH_MS, LEDGER_MS } from './ChangeLedger'
 import { CostDock } from './CostPanel'
 import { SketchEdge } from './SketchEdge'
 import { SketchNode } from './SketchNode'
@@ -34,30 +36,25 @@ interface DiagramProps {
 export function Diagram({ result, theme, users }: DiagramProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set())
-  const [toast, setToast] = useState<string | null>(null)
-  const prevLiveIds = useRef<Set<string>>(new Set())
+  const [ledgerNotes, setLedgerNotes] = useState<string[]>([])
+  const [ledgerGen, setLedgerGen] = useState(0)
+  const prevNodes = useRef<ArchNode[] | null>(null)
 
   useEffect(() => {
-    const live = new Set(result.nodes.filter((n) => !n.ghost).map((n) => n.id))
-    const prev = prevLiveIds.current
-    const added: string[] = []
-    if (prev.size > 0) {
-      for (const id of live) {
-        if (!prev.has(id)) added.push(id)
-      }
+    const prev = prevNodes.current
+    prevNodes.current = result.nodes
+    if (!prev) return
+    const { added, removed } = diffLiveNodes(prev, result.nodes)
+    if (added.length === 0 && removed.length === 0) return
+    setFlashIds(new Set(added.map((node) => node.id)))
+    setLedgerNotes(changeNotes(added, removed))
+    setLedgerGen((gen) => gen + 1)
+    const flash = window.setTimeout(() => setFlashIds(new Set()), FLASH_MS)
+    const ledger = window.setTimeout(() => setLedgerNotes([]), LEDGER_MS)
+    return () => {
+      window.clearTimeout(flash)
+      window.clearTimeout(ledger)
     }
-    prevLiveIds.current = live
-    if (added.length === 0) return
-    const notes = added
-      .map((id) => result.nodes.find((n) => n.id === id)?.appearNote)
-      .filter((note): note is string => Boolean(note))
-    setFlashIds(new Set(added))
-    setToast(notes[0] ?? `+ ${added.join(', ')}`)
-    const fade = window.setTimeout(() => {
-      setFlashIds(new Set())
-      setToast(null)
-    }, 1400)
-    return () => window.clearTimeout(fade)
   }, [result])
 
   const builtNodes = useMemo(
@@ -91,11 +88,11 @@ export function Diagram({ result, theme, users }: DiagramProps) {
           {note}
         </p>
       ) : null}
-      {toast ? (
-        <p className="absolute top-2 left-1/2 z-20 -translate-x-1/2 border border-ink bg-mark px-2 py-1 font-mono text-[10px] text-mark-ink">
-          {toast}
-        </p>
-      ) : null}
+      <ChangeLedger
+        key={ledgerGen}
+        notes={ledgerNotes}
+        onDismiss={() => setLedgerNotes([])}
+      />
       <div className="absolute inset-0 z-0">
         <ReactFlow
           nodes={nodes}

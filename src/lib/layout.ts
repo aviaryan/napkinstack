@@ -1,7 +1,7 @@
 import type { ArchNode } from './types'
 
 export const NODE_W = 160
-export const NODE_H = 70
+export const NODE_H = 76
 export const COL_GAP = 80
 const ROW_GAP = 22
 const BRANCH_EXTRA = 18

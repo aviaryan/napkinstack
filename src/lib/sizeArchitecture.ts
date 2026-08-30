@@ -13,12 +13,14 @@ import {
 } from '../data/prices'
 import { QUEUE_WRITE_QPS, READ_WRITE_CACHE_RATIO, recipeFor } from '../data/recipes'
 import {
-  APP_POOL_PER_INSTANCE,
+  APP_BASELINE_VCPU,
   FLEET_TARGET,
   POOLER_CONNECTION_TRIGGER,
   REPLICA_CAP,
   TOP_DB,
+  appPoolFor,
   dbPlanFor,
+  floorAppSize,
   pickAppFleet,
   pickBand,
   redisSizeFor,
@@ -73,12 +75,13 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
   })
   const appN = fleet.count
   const app = fleet.size
+  const appPool = appPoolFor(app)
 
   const flags: RecipeFlags = {
     ...baseFlags,
     pooler:
       baseFlags.pooler ||
-      (!baseFlags.comboAppDb && appN * APP_POOL_PER_INSTANCE >= POOLER_CONNECTION_TRIGGER),
+      (!baseFlags.comboAppDb && appN * appPool >= POOLER_CONNECTION_TRIGGER),
   }
 
   const cacheHitUsed = input.instantConsistency || !flags.cache ? 0 : input.cacheHitRate
@@ -108,6 +111,7 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     appN,
     appLabel: app.label,
     appCapacityRps: fleet.capacityRps,
+    appPool,
     db: plan,
     redisClass: input.provider === 'cheap' ? redis?.cheapClass : redis?.class,
     redisClustered: Boolean(redis?.clustered),
@@ -160,7 +164,7 @@ export function sizeArchitecture(input: ArchitectureInput): ArchitectureResult {
     cdnOffloadUsed,
   }
 
-  const math = buildMath(input, metrics, plan, flags, app.vcpu)
+  const math = buildMath(input, metrics, plan, flags, app.vcpu, band)
 
   return {
     band,
@@ -180,9 +184,11 @@ function buildMath(
   plan: DbPlan,
   flags: RecipeFlags,
   appVcpu: number,
+  band: Band,
 ): MathLine[] {
   const u = input.users.toLocaleString('en-US')
   const db = plan.size
+  const climbed = appVcpu > floorAppSize(band).vcpu
   const lines: MathLine[] = [
     {
       label: 'avg_read_qps',
@@ -223,10 +229,9 @@ function buildMath(
     },
     {
       label: 'app_size',
-      formula:
-        appVcpu > 4
-          ? `${appVcpu} vCPU so the fleet stays under ${FLEET_TARGET} boxes (capacity = ${input.rpsPerInstance} × ${appVcpu}/4)`
-          : `band floor · ${appVcpu} vCPU (capacity = ${input.rpsPerInstance} × ${appVcpu}/4)`,
+      formula: climbed
+        ? `${appVcpu} vCPU so the fleet stays under ${FLEET_TARGET} boxes (capacity = ${input.rpsPerInstance} × ${appVcpu}/${APP_BASELINE_VCPU})`
+        : `band floor · ${appVcpu} vCPU (capacity = ${input.rpsPerInstance} × ${appVcpu}/${APP_BASELINE_VCPU})`,
       value: `${appVcpu} vCPU`,
     },
     {
@@ -430,6 +435,7 @@ function buildGraph(opts: {
   appN: number
   appLabel: string
   appCapacityRps: number
+  appPool: number
   db: DbPlan
   redisClass?: string
   redisClustered: boolean
@@ -450,6 +456,7 @@ function buildGraph(opts: {
     appN,
     appLabel,
     appCapacityRps,
+    appPool,
     db: plan,
     redisClass,
     redisClustered,
@@ -560,12 +567,12 @@ function buildGraph(opts: {
     id: 'app',
     kind: 'app',
     label: appN <= 1 ? 'App' : `App × ${appN}`,
-    detail: appLabel,
+    detail: `${appLabel}\n~${formatQpsShort(appCapacityRps)} rps each`,
     count: appN,
     stack: appN > 1,
     why: `ceil(${formatQpsShort(originTotalQps)} origin rps / ${formatQpsShort(appCapacityRps)}) + ${input.spare} spare${
       band === 'hobby' ? '' : ', min 2 for HA'
-    }. Bigger boxes when the fleet would pass ${FLEET_TARGET}.`,
+    }. Scale up before out: past ~${FLEET_TARGET} boxes we take the next instance size — fewer deploys, fewer DB connections, less LB churn. Capacity is CPU-driven; RAM rides along at 1:2.`,
     utilization: clampUtil(originTotalQps / Math.max(appN * appCapacityRps, 1)),
   })
   edges.push({
@@ -609,7 +616,7 @@ function buildGraph(opts: {
       kind: 'pooler',
       label: 'PgBouncer',
       detail: 'connection pool',
-      why: `${appN} app boxes × ~${APP_POOL_PER_INSTANCE} conns would drown Postgres. Multiplex through a pooler.`,
+      why: `${appN} app boxes × ~${appPool} conns would drown Postgres. Multiplex through a pooler.`,
       appearNote: '+ PgBouncer — connection pooling',
     })
     edges.push({

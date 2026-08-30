@@ -34,7 +34,7 @@ export function SketchNode({ data }: NodeProps<Node<SketchNodeData>>) {
 
   return (
     <div
-      className={`relative h-[70px] w-[160px] border bg-node px-2 py-1.5 ${
+      className={`relative h-[76px] w-[160px] border bg-node px-2 py-1.5 ${
         ghost
           ? 'border-dashed border-ink/40 bg-sheet/70 text-muted opacity-70'
           : 'border-ink shadow-[2px_2px_0_var(--shadow-ink)]'
@@ -67,7 +67,7 @@ export function SketchNode({ data }: NodeProps<Node<SketchNodeData>>) {
       ) : (
         <p className="font-display text-[15px] leading-tight font-bold tracking-tight text-ink">{data.title}</p>
       )}
-      <p className="mt-0.5 line-clamp-2 font-mono text-[10px] leading-snug text-muted">{data.detail}</p>
+      <p className="mt-0.5 line-clamp-2 whitespace-pre-line font-mono text-[10px] leading-snug text-muted">{data.detail}</p>
       {accent && !ghost ? (
         <span className="absolute top-1.5 right-1.5 h-2 w-5 bg-mark" aria-hidden="true" />
       ) : null}

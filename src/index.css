@@ -199,8 +199,20 @@ summary:focus-visible {
   }
 }
 
-.notes-drawer {
-  animation: drawer-up 180ms ease-out;
+@keyframes ledger-linger {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.change-ledger {
+  animation-name: ledger-linger;
+  animation-timing-function: ease;
+  animation-fill-mode: forwards;
 }
 
 .sketch-range {

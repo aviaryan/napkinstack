@@ -1,5 +1,5 @@
 import { CDN_OFFLOAD } from './recipes'
-import { DEFAULT_INPUT } from '../lib/defaults'
+import { DEFAULT_INPUT, sameInput } from '../lib/defaults'
 import type { ArchitectureInput } from '../lib/types'
 
 export interface Preset {
@@ -98,8 +98,4 @@ export function matchingPresetId(input: ArchitectureInput): string | null {
     if (sameInput(preset.input, input)) return preset.id
   }
   return null
-}
-
-function sameInput(a: ArchitectureInput, b: ArchitectureInput): boolean {
-  return (Object.keys(a) as (keyof ArchitectureInput)[]).every((key) => a[key] === b[key])
 }

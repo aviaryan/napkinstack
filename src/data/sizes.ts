@@ -15,8 +15,9 @@ export function pickBand(peakTotalQps: number): Band {
   return 'xlarge'
 }
 
-/** Scale up so the fleet stays near this many boxes before the next bigger size. */
-export const FLEET_TARGET = 300
+/** Scale up to a bigger instance size once the peak fleet would pass this many boxes.
+ *  Real monoliths run a handful of mid-size boxes, not a swarm of tiny ones. */
+export const FLEET_TARGET = 12
 export const APP_BASELINE_VCPU = 4
 export const REPLICA_CAP = 5
 export const CACHE_NODE_BUDGET_QPS = 90_000
@@ -54,6 +55,11 @@ export function appCapacityRps(size: AppSize, rpsPerInstance: number): number {
   return rpsPerInstance * (size.vcpu / APP_BASELINE_VCPU)
 }
 
+/** Postgres connections held by one app box. Scales with workers / vCPU. */
+export function appPoolFor(size: AppSize): number {
+  return Math.max(1, Math.round(APP_POOL_PER_INSTANCE * (size.vcpu / APP_BASELINE_VCPU)))
+}
+
 export function appCountFor(peakQps: number, capacityRps: number, spare: number, hobby: boolean): number {
   if (hobby) return 1
   return Math.max(2, Math.ceil(peakQps / Math.max(capacityRps, 1)) + spare)
@@ -69,19 +75,20 @@ export function pickAppFleet(opts: {
   const { band, peakQps, rpsPerInstance, spare } = opts
   const floor = floorAppSize(band)
   const start = APP_LADDER.findIndex((s) => s.key === floor.key)
-  let chosen = APP_LADDER[start]
-  let count = appCountFor(peakQps, appCapacityRps(chosen, rpsPerInstance), spare, band === 'hobby')
+  const hobby = band === 'hobby'
+  let picked = APP_LADDER[start]
 
   for (let i = start; i < APP_LADDER.length; i++) {
-    const size = APP_LADDER[i]
-    const cap = appCapacityRps(size, rpsPerInstance)
-    const n = appCountFor(peakQps, cap, spare, band === 'hobby')
-    chosen = size
-    count = n
-    if (n <= FLEET_TARGET) break
+    picked = APP_LADDER[i]
+    const cap = appCapacityRps(picked, rpsPerInstance)
+    const n = appCountFor(peakQps, cap, spare, hobby)
+    if (n <= FLEET_TARGET || i === APP_LADDER.length - 1) {
+      return { size: picked, count: n, capacityRps: cap }
+    }
   }
 
-  return { size: chosen, count, capacityRps: appCapacityRps(chosen, rpsPerInstance) }
+  const cap = appCapacityRps(picked, rpsPerInstance)
+  return { size: picked, count: appCountFor(peakQps, cap, spare, hobby), capacityRps: cap }
 }
 
 const DB_BY_CLASS: Record<string, DbSize> = {

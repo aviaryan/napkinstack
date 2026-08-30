@@ -27,26 +27,16 @@ export function Controls({ input, result, onChange, onReset }: ControlsProps) {
 
   return (
     <aside className="flex flex-col gap-5 border-ink/15 bg-panel/80 p-4 sm:p-5 lg:h-full lg:overflow-y-auto lg:border-r">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-[10px] font-medium tracking-[0.22em] text-ballpoint uppercase">Field notes</p>
-          <h1 className="font-display text-3xl leading-none font-bold tracking-tight">NapkinStack</h1>
-        </div>
-        <button
-          type="button"
-          onClick={onReset}
-          data-testid="reset"
-          className="shrink-0 border border-ink bg-sheet px-2.5 py-1 font-mono text-[11px] tracking-wider uppercase hover:bg-mark"
-        >
-          Tear off sheet
-        </button>
+      <header>
+        <p className="font-mono text-[10px] font-medium tracking-[0.22em] text-ballpoint uppercase">Field notes</p>
+        <h1 className="font-display text-3xl leading-none font-bold tracking-tight">NapkinStack</h1>
       </header>
 
       <p className="max-w-prose text-sm leading-relaxed text-muted">
         Drag the knobs. The diagram is a recipe, not a profiler — every number is a transparent guess.
       </p>
 
-      <ExportBar result={result} />
+      <ExportBar result={result} input={input} onReset={onReset} />
 
       <fieldset>
         <legend className="mb-1.5 font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Scenarios</legend>

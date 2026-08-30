@@ -4,6 +4,7 @@ import {
   FLEET_TARGET,
   REPLICA_CAP,
   TOP_DB,
+  appPoolFor,
   dbPlanFor,
   pickAppFleet,
   redisSizeFor,
@@ -46,6 +47,22 @@ describe('pickAppFleet', () => {
     })
     expect(over.size.key).toBe('2xlarge')
     expect(over.count).toBeGreaterThan(FLEET_TARGET)
+  })
+
+  it('picks 4 vCPU × 9 for a ~1,258 rps medium sketch', () => {
+    const fleet = pickAppFleet({ band: 'medium', peakQps: 1258, rpsPerInstance: 200, spare: 2 })
+    expect(fleet.size.key).toBe('large')
+    expect(fleet.size.vcpu).toBe(4)
+    expect(fleet.capacityRps).toBe(200)
+    expect(fleet.count).toBe(9)
+  })
+})
+
+describe('appPoolFor', () => {
+  it('scales the per-box Postgres pool with vCPU', () => {
+    expect(appPoolFor({ key: 'medium', vcpu: 2, ramGb: 4, label: '2 vCPU · 4 GB' })).toBe(5)
+    expect(appPoolFor({ key: 'large', vcpu: 4, ramGb: 8, label: '4 vCPU · 8 GB' })).toBe(10)
+    expect(appPoolFor({ key: 'xlarge', vcpu: 8, ramGb: 16, label: '8 vCPU · 16 GB' })).toBe(20)
   })
 })
 
